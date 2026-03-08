@@ -206,11 +206,12 @@ void app_main(void)
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
-    /* Allocate draw buffers (1/4 screen, double-buffered) */
+    /* Allocate draw buffers (1/4 screen, double-buffered) from PSRAM.
+     * ESP32-S3 GDMA can access PSRAM via cache, so MALLOC_CAP_SPIRAM works. */
     uint32_t buf_size = EXAMPLE_LCD_H_RES * EXAMPLE_LVGL_BUF_HEIGHT * sizeof(lv_color_t);
-    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
     assert(buf1);
-    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
     assert(buf2);
 
     /* Create LVGL display (v9 API) */
@@ -218,7 +219,7 @@ void app_main(void)
     lv_display_set_flush_cb(lvgl_disp, example_lvgl_flush_cb);
     lv_display_set_buffers(lvgl_disp, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_user_data(lvgl_disp, panel_handle);
-    lv_display_set_color_format(lvgl_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_color_format(lvgl_disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
 
     /* Update panel IO callback context to point to lvgl display */
     esp_lcd_panel_io_callbacks_t cbs = {
