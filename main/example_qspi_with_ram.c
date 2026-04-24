@@ -1,10 +1,10 @@
 
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
 #include "driver/spi_master.h"
 #include "esp_timer.h"
 #include "esp_lcd_panel_io.h"
@@ -46,7 +46,7 @@ static uint8_t READ_LCD_ID = 0x00;
 #define EXAMPLE_LCD_H_RES              466
 #define EXAMPLE_LCD_V_RES              466
 
-#define EXAMPLE_LVGL_BUF_HEIGHT        (EXAMPLE_LCD_V_RES / 4)
+#define EXAMPLE_LVGL_BUF_HEIGHT        (EXAMPLE_LCD_V_RES / 10)
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 #define EXAMPLE_LVGL_TASK_MAX_DELAY_MS 500
 #define EXAMPLE_LVGL_TASK_MIN_DELAY_MS 1
@@ -127,6 +127,32 @@ static void example_lvgl_unlock(void)
     xSemaphoreGive(lvgl_mux);
 }
 
+static void example_benchmark_end_cb(const lv_demo_benchmark_summary_t *summary)
+{
+    ESP_LOGI(TAG, "======== LVGL Benchmark Complete ========");
+    ESP_LOGI(TAG, "%-32s %6s %6s %10s %10s", "Scene", "FPS", "CPU%", "Render_ms", "Flush_ms");
+    for (const lv_demo_benchmark_scene_dsc_t *s = summary->scenes; s->create_cb; s++) {
+        if (s->measurement_cnt == 0) continue;
+        const uint32_t cnt = s->measurement_cnt;
+        ESP_LOGI(TAG, "%-32s %6" PRIu32 " %6" PRIu32 " %10" PRIu32 " %10" PRIu32,
+                 s->name,
+                 s->fps_avg / cnt,
+                 s->cpu_avg_usage / cnt,
+                 s->render_avg_time / cnt,
+                 s->flush_avg_time / cnt);
+    }
+    ESP_LOGI(TAG, "---- Totals (%" PRId32 " valid scenes) ----", summary->valid_scene_cnt);
+    if (summary->valid_scene_cnt > 0) {
+        const int32_t n = summary->valid_scene_cnt;
+        ESP_LOGI(TAG, "Avg FPS: %" PRId32 "  Avg CPU: %" PRId32 "%%  Avg Render: %" PRId32 " ms  Avg Flush: %" PRId32 " ms",
+                 summary->total_avg_fps / n,
+                 summary->total_avg_cpu / n,
+                 summary->total_avg_render_time / n,
+                 summary->total_avg_flush_time / n);
+    }
+    ESP_LOGI(TAG, "=========================================");
+}
+
 static void example_lvgl_port_task(void *arg)
 {
     ESP_LOGI(TAG, "Starting LVGL task");
@@ -170,8 +196,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Install panel IO");
     esp_lcd_panel_io_handle_t io_handle = NULL;
     const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(EXAMPLE_PIN_NUM_LCD_CS,
-                                                                                 example_notify_lvgl_flush_ready,
-                                                                                 NULL); /* user_ctx set after display create */
+                                                                                 NULL,
+                                                                                 NULL); /* callback registered after lvgl_disp is created */
     sh8601_vendor_config_t vendor_config = {
         .flags = {
             .use_qspi_interface = 1,
@@ -206,12 +232,13 @@ void app_main(void)
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
-    /* Allocate draw buffers (1/4 screen, double-buffered) from PSRAM.
-     * ESP32-S3 GDMA can access PSRAM via cache, so MALLOC_CAP_SPIRAM works. */
+    /* Double-buffered draw buffers, 1/10 screen each, in internal SRAM.
+     * QSPI DMA at 40 MHz underflows when sourcing from PSRAM, so DMA-capable
+     * (MALLOC_CAP_DMA = internal SRAM) is required. */
     uint32_t buf_size = EXAMPLE_LCD_H_RES * EXAMPLE_LVGL_BUF_HEIGHT * sizeof(lv_color_t);
-    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
     assert(buf1);
-    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM);
+    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
     assert(buf2);
 
     /* Create LVGL display (v9 API) */
@@ -244,10 +271,11 @@ void app_main(void)
 
     lvgl_mux = xSemaphoreCreateMutex();
     assert(lvgl_mux);
-    xTaskCreate(example_lvgl_port_task, "LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY, NULL);
+    xTaskCreatePinnedToCore(example_lvgl_port_task, "LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY, NULL, 1);
 
     ESP_LOGI(TAG, "Display LVGL benchmark demo");
     if (example_lvgl_lock(-1)) {
+        lv_demo_benchmark_set_end_cb(example_benchmark_end_cb);
         lv_demo_benchmark();
         example_lvgl_unlock();
     }

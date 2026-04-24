@@ -165,5 +165,15 @@ uint8_t read_lcd_id(void)
   SPI_ReadComm(0xDA);
   uint8_t ret = SPI_ReadData_Continue();
   ESP_LOGI("lcd_Model","0x%02x",ret);
+
+  /* Release the pins so the SPI bus driver can claim them without warnings */
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_CS);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_PCLK);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_DATA0);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_DATA1);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_DATA2);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_DATA3);
+  gpio_reset_pin(EXAMPLE_PIN_NUM_LCD_RST);
+
   return ret;
 }
