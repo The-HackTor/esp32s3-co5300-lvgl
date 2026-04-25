@@ -50,3 +50,10 @@ CONFIG_LV_FONT_MONTSERRAT_48=y
 # CONFIG_LV_USE_DEMO_BENCHMARK is not set
 # CONFIG_LV_USE_DEMO_STRESS is not set
 # CONFIG_LV_USE_DEMO_MUSIC is not set
+
+# microSD (SDSPI on SPI3) for IR/SubGHz/NFC saves at /sdcard.
+# LFN allocated on heap (not stack) so deep paths don't overflow LVGL task.
+# Codepage 437 keeps ASCII-only filenames small vs 850/932.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_CODEPAGE_437=y

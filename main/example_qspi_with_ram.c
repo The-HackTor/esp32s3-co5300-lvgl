@@ -17,6 +17,18 @@
 #include "touch_bsp.h"
 #include "read_lcd_id_bsp.h"
 #include "smart_flipper/smart_flipper.h"
+#include "smart_flipper/hw/hw_rgb.h"
+
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#include "driver/sdspi_host.h"
+
+#define SD_PIN_CS    GPIO_NUM_38
+#define SD_PIN_MOSI  GPIO_NUM_39
+#define SD_PIN_MISO  GPIO_NUM_40
+#define SD_PIN_SCLK  GPIO_NUM_41
+#define SD_HOST      SPI3_HOST
+#define SD_MOUNT     "/sdcard"
 
 static const char *TAG = "example";
 static SemaphoreHandle_t lvgl_mux = NULL;
@@ -139,6 +151,54 @@ static void example_lvgl_unlock(void)
     xSemaphoreGive(lvgl_mux);
 }
 
+/* Mount microSD via SDSPI on SPI3_HOST. SPI2 is owned by the QSPI AMOLED at
+ * 40 MHz; sharing would hurt LCD flush latency. Failure is non-fatal so the
+ * UI still boots without a card -- IR app will show "Insert SD" on save. */
+static void example_mount_sdcard(void)
+{
+    const spi_bus_config_t bus = {
+        .mosi_io_num     = SD_PIN_MOSI,
+        .miso_io_num     = SD_PIN_MISO,
+        .sclk_io_num     = SD_PIN_SCLK,
+        .quadwp_io_num   = -1,
+        .quadhd_io_num   = -1,
+        .max_transfer_sz = 4096,
+    };
+    esp_err_t err = spi_bus_initialize(SD_HOST, &bus, SDSPI_DEFAULT_DMA);
+    if(err != ESP_OK) {
+        ESP_LOGE(TAG, "SD: spi_bus_initialize failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot          = SD_HOST;
+    /* 20 MHz: 40 MHz is the IDF ceiling but HS-mode negotiation failed at
+     * that rate on this board+card. SDSPI throughput is irrelevant for
+     * KB-scale .ir files; correctness over headline speed. */
+    host.max_freq_khz  = 20000;
+
+    sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot.gpio_cs = SD_PIN_CS;
+    slot.host_id = SD_HOST;
+
+    const esp_vfs_fat_sdmmc_mount_config_t mount = {
+        .format_if_mount_failed = false,
+        .max_files              = 8,
+        .allocation_unit_size   = 16 * 1024,
+    };
+
+    sdmmc_card_t *card = NULL;
+    err = esp_vfs_fat_sdspi_mount(SD_MOUNT, &host, &slot, &mount, &card);
+    if(err != ESP_OK) {
+        ESP_LOGW(TAG, "SD: mount %s failed: %s (continuing without SD)",
+                 SD_MOUNT, esp_err_to_name(err));
+        spi_bus_free(SD_HOST);
+        return;
+    }
+    ESP_LOGI(TAG, "SD: mounted at %s", SD_MOUNT);
+    sdmmc_card_print_info(stdout, card);
+}
+
 static void example_lvgl_port_task(void *arg)
 {
     ESP_LOGI(TAG, "Starting LVGL task");
@@ -212,6 +272,18 @@ void app_main(void)
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
     gpio_set_level(EXAMPLE_PIN_NUM_BK_LIGHT, EXAMPLE_LCD_BK_LIGHT_ON_LEVEL);
 #endif
+
+    /* RGB activity LEDs (R=GPIO17, G=GPIO7, B=GPIO0). LEDC PWM with 15% duty
+     * cap; safe before LVGL. Boot-time channel sweep so a flash quickly proves
+     * all three colors light independently. */
+    hw_rgb_init();
+    hw_rgb_pulse(255,   0,   0, 300); vTaskDelay(pdMS_TO_TICKS(350));
+    hw_rgb_pulse(  0, 255,   0, 300); vTaskDelay(pdMS_TO_TICKS(350));
+    hw_rgb_pulse(  0,   0, 255, 300); vTaskDelay(pdMS_TO_TICKS(350));
+    hw_rgb_off();
+
+    /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
+    example_mount_sdcard();
 
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
