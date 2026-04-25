@@ -55,6 +55,9 @@ typedef struct {
     char            name_buffer[IR_REMOTE_NAME_MAX];
     int             selected_button_idx;
     int             universal_category;
+    /* Tracks the next signal index to fire for each button in the current
+     * universal category. Reset on category change. Walks 0..M-1 and wraps. */
+    uint16_t        universal_signal_cursor[16];
 
     QueueHandle_t   rx_queue;
     lv_timer_t     *rx_drain_timer;

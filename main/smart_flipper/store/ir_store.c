@@ -15,8 +15,9 @@
 #define BUTTONS_INIT_CAP 4
 #define TIMINGS_INIT_CAP 64
 
-static const char IR_FILETYPE_HEADER[] = "Filetype: IR signals file";
-static const char IR_VERSION_HEADER[]  = "Version: 1";
+static const char IR_FILETYPE_SIGNALS[] = "Filetype: IR signals file";
+static const char IR_FILETYPE_LIBRARY[] = "Filetype: IR library file";
+static const char IR_VERSION_HEADER[]   = "Version: 1";
 
 static bool starts_with(const char *line, const char *prefix)
 {
@@ -183,24 +184,10 @@ static void finalize_button(IrRemote *r, IrButton *cur, bool *cur_valid)
     *cur_valid = false;
 }
 
-esp_err_t ir_remote_load(IrRemote *out, const char *path)
+static esp_err_t parse_remote_stream(IrRemote *out, FILE *fp)
 {
-    if(!out || !path) return ESP_ERR_INVALID_ARG;
-
-    FILE *fp = fopen(path, "r");
-    if(!fp) return ESP_ERR_NOT_FOUND;
-
-    memset(out, 0, sizeof(*out));
-    strncpy(out->path, path, sizeof(out->path) - 1);
-
-    const char *base = strrchr(path, '/');
-    base = base ? base + 1 : path;
-    strncpy(out->name, base, sizeof(out->name) - 1);
-    char *dot = strrchr(out->name, '.');
-    if(dot) *dot = '\0';
-
     char *line = malloc(LINE_BUF_BYTES);
-    if(!line) { fclose(fp); return ESP_ERR_NO_MEM; }
+    if(!line) return ESP_ERR_NO_MEM;
 
     IrButton cur = {0};
     bool cur_valid = false;
@@ -212,7 +199,9 @@ esp_err_t ir_remote_load(IrRemote *out, const char *path)
 
         if(*p == '\0' || *p == '#' || !header_done) {
             if(!header_done) {
-                if(starts_with(p, IR_FILETYPE_HEADER) || starts_with(p, IR_VERSION_HEADER)) continue;
+                if(starts_with(p, IR_FILETYPE_SIGNALS) ||
+                   starts_with(p, IR_FILETYPE_LIBRARY) ||
+                   starts_with(p, IR_VERSION_HEADER)) continue;
                 if(*p == '#') header_done = true;
                 continue;
             }
@@ -260,9 +249,47 @@ esp_err_t ir_remote_load(IrRemote *out, const char *path)
     finalize_button(out, &cur, &cur_valid);
 
     free(line);
-    fclose(fp);
     out->dirty = false;
     return ESP_OK;
+}
+
+esp_err_t ir_remote_load(IrRemote *out, const char *path)
+{
+    if(!out || !path) return ESP_ERR_INVALID_ARG;
+
+    FILE *fp = fopen(path, "r");
+    if(!fp) return ESP_ERR_NOT_FOUND;
+
+    memset(out, 0, sizeof(*out));
+    strncpy(out->path, path, sizeof(out->path) - 1);
+
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    strncpy(out->name, base, sizeof(out->name) - 1);
+    char *dot = strrchr(out->name, '.');
+    if(dot) *dot = '\0';
+
+    esp_err_t err = parse_remote_stream(out, fp);
+    fclose(fp);
+    return err;
+}
+
+esp_err_t ir_remote_load_blob(IrRemote *out, const char *name,
+                              const char *buf, size_t buf_len)
+{
+    if(!out || !buf || buf_len == 0) return ESP_ERR_INVALID_ARG;
+
+    FILE *fp = fmemopen((void *)buf, buf_len, "r");
+    if(!fp) return ESP_FAIL;
+
+    memset(out, 0, sizeof(*out));
+    if(name) {
+        strncpy(out->name, name, sizeof(out->name) - 1);
+    }
+
+    esp_err_t err = parse_remote_stream(out, fp);
+    fclose(fp);
+    return err;
 }
 
 static void write_hex32_le(FILE *fp, const char *key, uint32_t v)
@@ -282,7 +309,7 @@ esp_err_t ir_remote_save(const IrRemote *in)
     FILE *fp = fopen(in->path, "w");
     if(!fp) return ESP_FAIL;
 
-    fprintf(fp, "%s\n%s\n", IR_FILETYPE_HEADER, IR_VERSION_HEADER);
+    fprintf(fp, "%s\n%s\n", IR_FILETYPE_SIGNALS, IR_VERSION_HEADER);
 
     for(size_t i = 0; i < in->button_count; i++) {
         const IrButton *b = &in->buttons[i];

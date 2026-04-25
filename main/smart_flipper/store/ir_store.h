@@ -76,6 +76,8 @@ esp_err_t ir_store_list_remotes(char (*out_names)[IR_REMOTE_NAME_MAX],
 
 esp_err_t ir_remote_init(IrRemote *r, const char *name);
 esp_err_t ir_remote_load(IrRemote *out, const char *path);
+esp_err_t ir_remote_load_blob(IrRemote *out, const char *name,
+                              const char *buf, size_t buf_len);
 esp_err_t ir_remote_save(const IrRemote *in);
 esp_err_t ir_remote_append_button(IrRemote *r, const IrButton *btn);
 esp_err_t ir_remote_delete_button(IrRemote *r, size_t idx);

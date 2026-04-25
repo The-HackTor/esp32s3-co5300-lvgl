@@ -4,6 +4,11 @@ file(GLOB_RECURSE SMART_FLIPPER_SRCS
 
 idf_component_register(
     SRCS "example_qspi_with_ram.c" ${SMART_FLIPPER_SRCS}
+    EMBED_FILES
+        "smart_flipper/lib/infrared/universal_db/tv.ir"
+        "smart_flipper/lib/infrared/universal_db/ac.ir"
+        "smart_flipper/lib/infrared/universal_db/audio.ir"
+        "smart_flipper/lib/infrared/universal_db/projector.ir"
     INCLUDE_DIRS
         "."
         "smart_flipper"
@@ -32,6 +37,7 @@ idf_component_register(
         "smart_flipper/lib/infrared/encoder_decoder/pioneer"
         "smart_flipper/lib/infrared/encoder_decoder/rca"
         "smart_flipper/lib/infrared/codec_db"
+        "smart_flipper/lib/infrared/universal_db"
 )
 
 set_source_files_properties(
