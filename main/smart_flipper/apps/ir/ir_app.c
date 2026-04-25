@@ -80,12 +80,25 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         app.last_decoded = dec;
         app.last_decoded_valid = true;
         memset(&app.pending_button, 0, sizeof(app.pending_button));
-        app.pending_button.signal.type = INFRARED_SIGNAL_PARSED;
-        snprintf(app.pending_button.signal.parsed.protocol,
-                 sizeof(app.pending_button.signal.parsed.protocol),
-                 "%s", dec.protocol);
-        app.pending_button.signal.parsed.address = dec.address;
-        app.pending_button.signal.parsed.command = dec.command;
+
+        if(dec.source == IR_DECODED_FLIPPER) {
+            app.pending_button.signal.type = INFRARED_SIGNAL_PARSED;
+            snprintf(app.pending_button.signal.parsed.protocol,
+                     sizeof(app.pending_button.signal.parsed.protocol),
+                     "%s", dec.protocol);
+            app.pending_button.signal.parsed.address = dec.address;
+            app.pending_button.signal.parsed.command = dec.command;
+        } else {
+            app.pending_button.signal.type = INFRARED_SIGNAL_RAW;
+            app.pending_button.signal.raw.freq_hz  = 38000;
+            app.pending_button.signal.raw.duty_pct = 33;
+            app.pending_button.signal.raw.timings = malloc(frame->n_timings * sizeof(uint16_t));
+            if(app.pending_button.signal.raw.timings) {
+                memcpy(app.pending_button.signal.raw.timings, frame->timings,
+                       frame->n_timings * sizeof(uint16_t));
+                app.pending_button.signal.raw.n_timings = frame->n_timings;
+            }
+        }
         app.pending_valid = true;
 
         if(app.pending_raw_timings) free(app.pending_raw_timings);

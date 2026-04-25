@@ -11,8 +11,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VISIBLE_BUTTONS 16
-
 static void send_universal(IrApp *app, size_t button_idx, size_t signal_idx)
 {
     IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
@@ -49,13 +47,15 @@ static void button_selected(void *ctx, uint32_t index)
 {
     IrApp *app = ctx;
     IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
-    if(index >= VISIBLE_BUTTONS) return;
     size_t total = ir_universal_db_signal_count(cat, index);
     if(total == 0) return;
 
-    size_t cursor = app->universal_signal_cursor[index];
+    size_t cursor_slot = index < (sizeof(app->universal_signal_cursor) /
+                                  sizeof(app->universal_signal_cursor[0]))
+                         ? index : 0;
+    size_t cursor = app->universal_signal_cursor[cursor_slot];
     send_universal(app, index, cursor);
-    app->universal_signal_cursor[index] = (uint16_t)((cursor + 1) % total);
+    app->universal_signal_cursor[cursor_slot] = (uint16_t)((cursor + 1) % total);
 
     char text[48];
     snprintf(text, sizeof(text), "%s  %u / %u",
@@ -90,11 +90,9 @@ void ir_scene_universal_category_on_enter(void *ctx)
 
     memset(app->universal_signal_cursor, 0, sizeof(app->universal_signal_cursor));
 
-    size_t shown = total_buttons < VISIBLE_BUTTONS ? total_buttons : VISIBLE_BUTTONS;
-
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, header, COLOR_ORANGE);
-    for(size_t i = 0; i < shown; i++) {
+    for(size_t i = 0; i < total_buttons; i++) {
         const char *name = ir_universal_db_button_name(cat, i);
         size_t n = ir_universal_db_signal_count(cat, i);
         char label[40];

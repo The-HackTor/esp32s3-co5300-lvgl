@@ -11,12 +11,13 @@ typedef struct {
 } ItemCtx;
 
 struct ViewSubmenu {
-    lv_obj_t *root;       /* Full-screen container (never destroyed) */
-    lv_obj_t *header_bar; /* Title bar with back button */
+    lv_obj_t *root;
+    lv_obj_t *header_bar;
     lv_obj_t *title_lbl;
-    lv_obj_t *list;       /* Scrollable item container */
-    ItemCtx   items[VIEW_SUBMENU_MAX_ITEMS];
+    lv_obj_t *list;
+    ItemCtx  *items;
     uint32_t  item_count;
+    uint32_t  item_cap;
 };
 
 static void apply_barrel(lv_obj_t *list)
@@ -70,6 +71,10 @@ static void submenu_destroy(void *module)
     if(sm->root) {
         lv_obj_delete(sm->root);
         sm->root = NULL;
+    }
+    if(sm->items) {
+        free(sm->items);
+        sm->items = NULL;
     }
     free(sm);
 }
@@ -165,7 +170,13 @@ void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *l
                            lv_color_t color, uint32_t index,
                            ViewSubmenuCallback cb, void *ctx)
 {
-    if(submenu->item_count >= VIEW_SUBMENU_MAX_ITEMS) return;
+    if(submenu->item_count == submenu->item_cap) {
+        uint32_t new_cap = submenu->item_cap ? submenu->item_cap * 2 : 8;
+        ItemCtx *grown = realloc(submenu->items, new_cap * sizeof(ItemCtx));
+        if(!grown) return;
+        submenu->items   = grown;
+        submenu->item_cap = new_cap;
+    }
 
     ItemCtx *ictx = &submenu->items[submenu->item_count];
     ictx->cb = cb;

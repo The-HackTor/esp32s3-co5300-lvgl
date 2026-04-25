@@ -4,8 +4,6 @@
 #include <lvgl.h>
 #include "ui/view_module.h"
 
-#define VIEW_SUBMENU_MAX_ITEMS 16
-
 typedef void (*ViewSubmenuCallback)(void *context, uint32_t index);
 
 typedef struct ViewSubmenu ViewSubmenu;
