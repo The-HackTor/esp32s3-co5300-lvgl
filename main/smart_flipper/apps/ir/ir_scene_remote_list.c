@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 #include "store/ir_store.h"
 
 #include <string.h>
@@ -24,7 +25,8 @@ static void remote_selected(void *ctx, uint32_t index)
         view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_RED);
         view_popup_set_header(app->popup, "Load Failed", COLOR_RED);
         view_popup_set_text(app->popup, list_buf[index]);
-        view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+        view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                                (uint32_t)TransitionFadeIn, 120);
         return;
     }
     app->is_learning_new_remote = false;
@@ -49,7 +51,8 @@ void ir_scene_remote_list_on_enter(void *ctx)
             view_popup_set_header(app->popup, "No Remotes", COLOR_SECONDARY);
             view_popup_set_text(app->popup, "Learn one first.");
         }
-        view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+        view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                                (uint32_t)TransitionFadeIn, 120);
         return;
     }
 
@@ -62,7 +65,8 @@ void ir_scene_remote_list_on_enter(void *ctx)
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_RemoteList));
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewSubmenu);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_remote_list_on_event(void *ctx, SceneEvent event)

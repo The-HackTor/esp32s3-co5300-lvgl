@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -33,7 +34,8 @@ void ir_scene_learn_enter_name_on_enter(void *ctx)
                                sizeof(app->name_buffer));
     view_text_input_set_callback(app->text_input, name_accepted, app);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewTextInput);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewTextInput,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_learn_enter_name_on_event(void *ctx, SceneEvent event)

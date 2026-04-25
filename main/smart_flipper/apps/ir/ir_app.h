@@ -70,6 +70,13 @@ typedef struct {
      * the app exits. */
     uint16_t       *pending_raw_timings;
     size_t          pending_raw_n;
+
+    /* Most recent capture mirrored from rx_drain_timer_cb so the Learn
+     * scene's oscilloscope can render an envelope preview. */
+    uint16_t        preview_timings[256];
+    size_t          preview_n;
+    uint32_t        preview_seq;
+    lv_timer_t     *learn_redraw_timer;
 } IrApp;
 
 void   ir_app_register(void);

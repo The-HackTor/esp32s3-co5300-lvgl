@@ -73,6 +73,11 @@ static void rx_drain_timer_cb(lv_timer_t *t)
 
     hw_rgb_pulse(0, 255, 0, 100);
 
+    size_t prev_n = frame->n_timings < 256 ? frame->n_timings : 256;
+    memcpy(app.preview_timings, frame->timings, prev_n * sizeof(uint16_t));
+    app.preview_n = prev_n;
+    app.preview_seq++;
+
     IrDecoded dec = {0};
     bool decoded = ir_codecs_decode(frame->timings, frame->n_timings, &dec);
 

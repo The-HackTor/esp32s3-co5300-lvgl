@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "lib/infrared/ir_codecs.h"
@@ -52,7 +53,8 @@ static void btn_send(void *ctx)
     view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
     view_popup_set_text(app->popup,
         "codec_db protocols need a per-protocol sender.");
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                            (uint32_t)TransitionFadeIn, 120);
 }
 
 static void btn_discard(void *ctx)
@@ -103,7 +105,8 @@ void ir_scene_learn_success_on_enter(void *ctx)
                              LV_SYMBOL_PLAY " Send", COLOR_RED, btn_send, app,
                              LV_SYMBOL_TRASH " Discard", COLOR_DIM, btn_discard, app);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewInfo);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewInfo,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_learn_success_on_event(void *ctx, SceneEvent event)

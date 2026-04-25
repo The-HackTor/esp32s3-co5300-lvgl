@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 
 static void dialog_cb(void *ctx, uint32_t result)
 {
@@ -26,7 +27,8 @@ void ir_scene_ask_back_on_enter(void *ctx)
     view_dialog_set_right_button(app->dialog, "Keep", COLOR_GREEN);
     view_dialog_set_callback(app->dialog, dialog_cb, app);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewDialog);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewDialog,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_ask_back_on_event(void *ctx, SceneEvent event)

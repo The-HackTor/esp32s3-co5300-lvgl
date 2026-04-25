@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +61,8 @@ void ir_scene_learn_done_on_enter(void *ctx)
 
     memset(app->name_buffer, 0, sizeof(app->name_buffer));
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                            (uint32_t)TransitionFadeIn, 120);
 }
 
 bool ir_scene_learn_done_on_event(void *ctx, SceneEvent event)

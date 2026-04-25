@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 
 static void category_selected(void *ctx, uint32_t index)
 {
@@ -37,7 +38,8 @@ void ir_scene_universal_on_enter(void *ctx)
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_Universal));
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewSubmenu);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_universal_on_event(void *ctx, SceneEvent event)

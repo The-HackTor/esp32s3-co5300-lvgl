@@ -2,6 +2,7 @@
 #include "ir_scenes.h"
 #include "app/app_manager.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 
 enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED };
 
@@ -43,7 +44,8 @@ void ir_scene_start_on_enter(void *ctx)
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_Start));
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewSubmenu);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_start_on_event(void *ctx, SceneEvent event)

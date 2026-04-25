@@ -35,6 +35,40 @@
 static const char *TAG = "example";
 static SemaphoreHandle_t lvgl_mux = NULL;
 static lv_display_t *lvgl_disp = NULL;
+static esp_lcd_panel_io_handle_t s_panel_io = NULL;
+
+/* 0x51 = SH8601 write_display_brightness (1 byte, 0x00..0xFF). Ramped per
+ * IDLE_TICK_MS to mask AMOLED step changes. */
+#define IDLE_DIM_THRESHOLD_MS  30000
+#define IDLE_DIM_LEVEL         0x1A
+#define IDLE_FULL_LEVEL        0xFF
+#define IDLE_RAMP_STEP         8
+#define IDLE_TICK_MS           50
+
+static void idle_dim_set_level(uint8_t level)
+{
+    if (!s_panel_io) return;
+    uint8_t p = level;
+    esp_lcd_panel_io_tx_param(s_panel_io, 0x51, &p, 1);
+}
+
+static void idle_dim_tick(lv_timer_t *t)
+{
+    (void)t;
+    static uint8_t current = IDLE_FULL_LEVEL;
+    if (!lvgl_disp) return;
+    uint32_t inactive = lv_display_get_inactive_time(lvgl_disp);
+    uint8_t target = (inactive >= IDLE_DIM_THRESHOLD_MS) ? IDLE_DIM_LEVEL : IDLE_FULL_LEVEL;
+    if (current == target) return;
+    if (target > current) {
+        uint16_t next = (uint16_t)current + IDLE_RAMP_STEP;
+        current = (next >= target) ? target : (uint8_t)next;
+    } else {
+        int16_t next = (int16_t)current - IDLE_RAMP_STEP;
+        current = (next <= target) ? target : (uint8_t)next;
+    }
+    idle_dim_set_level(current);
+}
 
 #define LCD_HOST    SPI2_HOST
 
@@ -278,6 +312,7 @@ void app_main(void)
         },
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
+    s_panel_io = io_handle;
 
     esp_lcd_panel_handle_t panel_handle = NULL;
     const esp_lcd_panel_dev_config_t panel_config = {
@@ -295,6 +330,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+    idle_dim_set_level(IDLE_FULL_LEVEL);
 
     Touch_Init();
 
@@ -373,6 +409,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Start smart_flipper UI");
     if (example_lvgl_lock(-1)) {
         smart_flipper_start();
+        lv_timer_create(idle_dim_tick, IDLE_TICK_MS, NULL);
         example_lvgl_unlock();
     }
 }

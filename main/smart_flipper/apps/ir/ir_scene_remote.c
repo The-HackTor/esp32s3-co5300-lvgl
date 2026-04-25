@@ -1,6 +1,7 @@
 #include "ir_app.h"
 #include "ir_scenes.h"
 #include "ui/styles.h"
+#include "ui/transition.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "lib/infrared/ir_codecs.h"
@@ -61,7 +62,8 @@ static void button_tapped(void *ctx, uint32_t index)
     view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
     view_popup_set_text(app->popup,
         "codec_db protocols need a per-protocol sender.");
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                            (uint32_t)TransitionFadeIn, 120);
 }
 
 void ir_scene_remote_on_enter(void *ctx)
@@ -83,7 +85,8 @@ void ir_scene_remote_on_enter(void *ctx)
     view_submenu_add_item(app->submenu, LV_SYMBOL_PLUS, "Learn Another",
                           COLOR_BLUE, ADD_BUTTON_INDEX, button_tapped, app);
 
-    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewSubmenu);
+    view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
+                                            (uint32_t)TransitionSlideLeft, 180);
 }
 
 bool ir_scene_remote_on_event(void *ctx, SceneEvent event)
