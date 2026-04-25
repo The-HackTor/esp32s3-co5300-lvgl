@@ -18,6 +18,7 @@
 #include "read_lcd_id_bsp.h"
 #include "smart_flipper/smart_flipper.h"
 #include "smart_flipper/hw/hw_rgb.h"
+#include "smart_flipper/hw/hw_ir.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -149,6 +150,24 @@ static void example_lvgl_unlock(void)
 {
     assert(lvgl_mux);
     xSemaphoreGive(lvgl_mux);
+}
+
+/* Slice-5 demo: log + GREEN flash on every captured IR frame. Runs on the
+ * hw_ir RX worker task (NOT LVGL task) -- only touches hw_rgb (esp_timer-
+ * based, task-safe) and ESP_LOG. Replaced by ir_scene_learn's callback in a
+ * later slice; remove or repurpose then. */
+static void rx_demo_cb(const uint16_t *timings, size_t n_timings, void *ctx)
+{
+    (void)ctx;
+    hw_rgb_pulse(0, 255, 0, 100);
+    ESP_LOGI(TAG, "IR RX: %u timings, head=[%u,%u,%u,%u,%u,%u]",
+             (unsigned)n_timings,
+             n_timings > 0 ? timings[0] : 0,
+             n_timings > 1 ? timings[1] : 0,
+             n_timings > 2 ? timings[2] : 0,
+             n_timings > 3 ? timings[3] : 0,
+             n_timings > 4 ? timings[4] : 0,
+             n_timings > 5 ? timings[5] : 0);
 }
 
 /* Mount microSD via SDSPI on SPI3_HOST. SPI2 is owned by the QSPI AMOLED at
@@ -284,6 +303,13 @@ void app_main(void)
 
     /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
     example_mount_sdcard();
+
+    /* IR HAL: RMT TX (GPIO5, 38 kHz hardware carrier) + RMT RX (GPIO3, edge
+     * capture, 50 ms EOF). Demo callback flashes GREEN and logs the first few
+     * timings on each captured frame -- a temporary slice-5 verification path
+     * to be replaced by ir_scene_learn's callback in slice 7+. */
+    hw_ir_init();
+    hw_ir_rx_start(rx_demo_cb, NULL);
 
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();

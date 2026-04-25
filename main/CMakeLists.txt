@@ -19,6 +19,17 @@ idf_component_register(
         "smart_flipper/hw"
         "smart_flipper/store"
         "smart_flipper/bridge"
+        "smart_flipper/lib/infrared"
+        "smart_flipper/lib/infrared/encoder_decoder"
+        "smart_flipper/lib/infrared/encoder_decoder/common"
+        "smart_flipper/lib/infrared/encoder_decoder/nec"
+        "smart_flipper/lib/infrared/encoder_decoder/rc5"
+        "smart_flipper/lib/infrared/encoder_decoder/rc6"
+        "smart_flipper/lib/infrared/encoder_decoder/samsung"
+        "smart_flipper/lib/infrared/encoder_decoder/sirc"
+        "smart_flipper/lib/infrared/encoder_decoder/kaseikyo"
+        "smart_flipper/lib/infrared/encoder_decoder/pioneer"
+        "smart_flipper/lib/infrared/encoder_decoder/rca"
 )
 
 set_source_files_properties(
