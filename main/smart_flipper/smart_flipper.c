@@ -25,6 +25,7 @@ static const char *TAG = "smart_flipper";
 
 void nfc_app_register(void);
 void subghz_app_register(void);
+void ir_app_register(void);
 
 static void clock_tick_cb(lv_timer_t *t)
 {
@@ -72,6 +73,7 @@ void smart_flipper_start(void)
     scr_settings_register();
     nfc_app_register();
     subghz_app_register();
+    ir_app_register();
     app_manager_init_apps();
 
     bridge_init();

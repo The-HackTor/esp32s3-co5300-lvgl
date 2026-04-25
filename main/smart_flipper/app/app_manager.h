@@ -11,6 +11,7 @@ typedef enum {
     APP_ID_NONE = 0,
     APP_ID_NFC,
     APP_ID_SUBGHZ,
+    APP_ID_IR,
     APP_ID_HEALTH,
     APP_ID_WEATHER,
     APP_ID_MUSIC,

@@ -16,6 +16,7 @@ idf_component_register(
         "smart_flipper/apps"
         "smart_flipper/apps/nfc"
         "smart_flipper/apps/subghz"
+        "smart_flipper/apps/ir"
         "smart_flipper/hw"
         "smart_flipper/store"
         "smart_flipper/bridge"
