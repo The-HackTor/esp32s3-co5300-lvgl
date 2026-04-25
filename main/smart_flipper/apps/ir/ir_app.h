@@ -54,6 +54,7 @@ typedef struct {
     bool            is_learning_new_remote;
     char            name_buffer[IR_REMOTE_NAME_MAX];
     int             selected_button_idx;
+    int             universal_category;
 
     QueueHandle_t   rx_queue;
     lv_timer_t     *rx_drain_timer;

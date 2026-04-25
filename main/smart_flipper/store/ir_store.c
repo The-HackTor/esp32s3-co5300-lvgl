@@ -308,16 +308,93 @@ esp_err_t ir_remote_save(const IrRemote *in)
     return ESP_OK;
 }
 
-esp_err_t ir_store_init(void)
+static esp_err_t ensure_dir(const char *path)
 {
     struct stat st;
-    if(stat(IR_STORE_DIR, &st) == 0) {
+    if(stat(path, &st) == 0) {
         return S_ISDIR(st.st_mode) ? ESP_OK : ESP_FAIL;
     }
-    if(mkdir(IR_STORE_DIR, 0775) != 0) {
-        ESP_LOGW(TAG, "mkdir %s failed", IR_STORE_DIR);
+    if(mkdir(path, 0775) != 0) {
+        ESP_LOGW(TAG, "mkdir %s failed", path);
         return ESP_FAIL;
     }
+    return ESP_OK;
+}
+
+esp_err_t ir_store_init(void)
+{
+    if(ensure_dir(IR_STORE_DIR) != ESP_OK) return ESP_FAIL;
+    if(ensure_dir(IR_UNIVERSAL_DIR) != ESP_OK) return ESP_FAIL;
+    char buf[IR_REMOTE_PATH_MAX];
+    for(int c = 0; c < IR_UNIVERSAL_CAT_COUNT; c++) {
+        snprintf(buf, sizeof(buf), "%s/%s",
+                 IR_UNIVERSAL_DIR,
+                 ir_universal_category_dirname((IrUniversalCategory)c));
+        ensure_dir(buf);
+    }
+    return ESP_OK;
+}
+
+const char *ir_universal_category_dirname(IrUniversalCategory cat)
+{
+    switch(cat) {
+    case IR_UNIVERSAL_CAT_TV:        return "tv";
+    case IR_UNIVERSAL_CAT_AC:        return "ac";
+    case IR_UNIVERSAL_CAT_AUDIO:     return "audio";
+    case IR_UNIVERSAL_CAT_PROJECTOR: return "projector";
+    default: return "";
+    }
+}
+
+const char *ir_universal_category_label(IrUniversalCategory cat)
+{
+    switch(cat) {
+    case IR_UNIVERSAL_CAT_TV:        return "TVs";
+    case IR_UNIVERSAL_CAT_AC:        return "Air Conditioners";
+    case IR_UNIVERSAL_CAT_AUDIO:     return "Audio Receivers";
+    case IR_UNIVERSAL_CAT_PROJECTOR: return "Projectors";
+    default: return "";
+    }
+}
+
+esp_err_t ir_universal_path(IrUniversalCategory cat, const char *name,
+                            char *out, size_t out_len)
+{
+    if(!out || !name || out_len == 0) return ESP_ERR_INVALID_ARG;
+    int n = snprintf(out, out_len, "%s/%s/%s.ir",
+                     IR_UNIVERSAL_DIR,
+                     ir_universal_category_dirname(cat), name);
+    if(n < 0 || (size_t)n >= out_len) return ESP_ERR_INVALID_SIZE;
+    return ESP_OK;
+}
+
+esp_err_t ir_universal_list(IrUniversalCategory cat,
+                            char (*out_names)[IR_REMOTE_NAME_MAX],
+                            size_t cap, size_t *out_count)
+{
+    if(!out_names || !out_count) return ESP_ERR_INVALID_ARG;
+    *out_count = 0;
+
+    char path[IR_REMOTE_PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s",
+             IR_UNIVERSAL_DIR, ir_universal_category_dirname(cat));
+
+    DIR *dir = opendir(path);
+    if(!dir) return ESP_ERR_NOT_FOUND;
+
+    struct dirent *ent;
+    while((ent = readdir(dir)) != NULL) {
+        if(*out_count >= cap) break;
+        const char *dot = strrchr(ent->d_name, '.');
+        if(!dot || strcmp(dot, ".ir") != 0) continue;
+
+        size_t base_len = (size_t)(dot - ent->d_name);
+        if(base_len >= IR_REMOTE_NAME_MAX) base_len = IR_REMOTE_NAME_MAX - 1;
+        memcpy(out_names[*out_count], ent->d_name, base_len);
+        out_names[*out_count][base_len] = '\0';
+        (*out_count)++;
+    }
+    closedir(dir);
     return ESP_OK;
 }
 

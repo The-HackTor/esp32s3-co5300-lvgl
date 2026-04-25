@@ -7,9 +7,27 @@
 #include "esp_err.h"
 
 #define IR_STORE_DIR              "/sdcard/ir"
+#define IR_UNIVERSAL_DIR          "/sdcard/ir/universal"
 #define IR_REMOTE_NAME_MAX        32
-#define IR_REMOTE_PATH_MAX        80
+#define IR_REMOTE_PATH_MAX        96
 #define IR_PROTOCOL_NAME_MAX      24
+
+typedef enum {
+    IR_UNIVERSAL_CAT_TV = 0,
+    IR_UNIVERSAL_CAT_AC,
+    IR_UNIVERSAL_CAT_AUDIO,
+    IR_UNIVERSAL_CAT_PROJECTOR,
+    IR_UNIVERSAL_CAT_COUNT,
+} IrUniversalCategory;
+
+const char *ir_universal_category_dirname(IrUniversalCategory cat);
+const char *ir_universal_category_label(IrUniversalCategory cat);
+
+esp_err_t ir_universal_list(IrUniversalCategory cat,
+                            char (*out_names)[IR_REMOTE_NAME_MAX],
+                            size_t cap, size_t *out_count);
+esp_err_t ir_universal_path(IrUniversalCategory cat, const char *name,
+                            char *out, size_t out_len);
 
 typedef enum {
     INFRARED_SIGNAL_PARSED = 0,

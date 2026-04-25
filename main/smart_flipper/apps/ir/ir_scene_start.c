@@ -12,11 +12,7 @@ static void submenu_cb(void *context, uint32_t index)
 
     switch(index) {
     case IDX_UNIVERSAL:
-        view_popup_reset(app->popup);
-        view_popup_set_icon(app->popup, LV_SYMBOL_LIST, COLOR_DIM);
-        view_popup_set_header(app->popup, "Coming Soon", COLOR_SECONDARY);
-        view_popup_set_text(app->popup, "Universal remotes land in phase 2.");
-        view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Universal);
         break;
     case IDX_LEARN:
         ir_remote_free(&app->current_remote);
