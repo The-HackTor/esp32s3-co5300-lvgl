@@ -30,6 +30,7 @@ idf_component_register(
         "smart_flipper/lib/infrared/encoder_decoder/kaseikyo"
         "smart_flipper/lib/infrared/encoder_decoder/pioneer"
         "smart_flipper/lib/infrared/encoder_decoder/rca"
+        "smart_flipper/lib/infrared/codec_db"
 )
 
 set_source_files_properties(

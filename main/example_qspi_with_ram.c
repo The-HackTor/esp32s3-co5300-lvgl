@@ -19,6 +19,7 @@
 #include "smart_flipper/smart_flipper.h"
 #include "smart_flipper/hw/hw_rgb.h"
 #include "smart_flipper/hw/hw_ir.h"
+#include "smart_flipper/lib/infrared/ir_codecs.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -152,22 +153,31 @@ static void example_lvgl_unlock(void)
     xSemaphoreGive(lvgl_mux);
 }
 
-/* Slice-5 demo: log + GREEN flash on every captured IR frame. Runs on the
- * hw_ir RX worker task (NOT LVGL task) -- only touches hw_rgb (esp_timer-
- * based, task-safe) and ESP_LOG. Replaced by ir_scene_learn's callback in a
- * later slice; remove or repurpose then. */
+/* Slice-7a demo: classify each captured IR frame through the codec
+ * dispatcher and log protocol/address/command. Runs on the hw_ir RX worker
+ * task (NOT LVGL task) -- only touches hw_rgb (esp_timer-based, task-safe),
+ * ESP_LOG, and ir_codecs (pure compute over timings). Replaced by
+ * ir_scene_learn's callback in a later slice. */
 static void rx_demo_cb(const uint16_t *timings, size_t n_timings, void *ctx)
 {
     (void)ctx;
     hw_rgb_pulse(0, 255, 0, 100);
-    ESP_LOGI(TAG, "IR RX: %u timings, head=[%u,%u,%u,%u,%u,%u]",
-             (unsigned)n_timings,
-             n_timings > 0 ? timings[0] : 0,
-             n_timings > 1 ? timings[1] : 0,
-             n_timings > 2 ? timings[2] : 0,
-             n_timings > 3 ? timings[3] : 0,
-             n_timings > 4 ? timings[4] : 0,
-             n_timings > 5 ? timings[5] : 0);
+
+    IrDecoded dec;
+    if(ir_codecs_decode(timings, n_timings, &dec)) {
+        ESP_LOGI(TAG, "IR RX: decoded %s addr=0x%08lX cmd=0x%08lX%s",
+                 dec.protocol,
+                 (unsigned long)dec.address,
+                 (unsigned long)dec.command,
+                 dec.repeat ? " (repeat)" : "");
+    } else {
+        ESP_LOGI(TAG, "IR RX: %u timings (undecoded), head=[%u,%u,%u,%u]",
+                 (unsigned)n_timings,
+                 n_timings > 0 ? timings[0] : 0,
+                 n_timings > 1 ? timings[1] : 0,
+                 n_timings > 2 ? timings[2] : 0,
+                 n_timings > 3 ? timings[3] : 0);
+    }
 }
 
 /* Mount microSD via SDSPI on SPI3_HOST. SPI2 is owned by the QSPI AMOLED at
