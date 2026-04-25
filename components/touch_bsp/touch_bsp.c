@@ -44,18 +44,30 @@ void Touch_Init(void)
 
 uint8_t getTouch(uint16_t *x, uint16_t *y)
 {
+  /* FT3168 reg 0x02 = touch point count; low nibble is the real count, upper
+   * nibble is reserved/undefined on some variants. Without INT/RST wired we
+   * see spurious bits occasionally, so mask and bound before trusting it. */
   uint8_t data = 0;
   uint8_t buf[4];
-  I2C_read_buff(0x02, &data, 1);
-  if (data) {
-    I2C_read_buff(0x03, buf, 4);
-    *x = (((uint16_t)buf[0] & 0x0f) << 8) | (uint16_t)buf[1];
-    *y = (((uint16_t)buf[2] & 0x0f) << 8) | (uint16_t)buf[3];
-    if (*x > EXAMPLE_LCD_H_RES) *x = EXAMPLE_LCD_H_RES;
-    if (*y > EXAMPLE_LCD_V_RES) *y = EXAMPLE_LCD_V_RES;
-    return 1;
-  }
-  return 0;
+  if (I2C_read_buff(0x02, &data, 1) != 0) return 0;
+  uint8_t count = data & 0x0f;
+  if (count == 0 || count > 5) return 0;
+
+  if (I2C_read_buff(0x03, buf, 4) != 0) return 0;
+
+  /* Event flag in top 2 bits of buf[0]: 0=Press, 1=LiftUp, 2=Contact, 3=None.
+   * Polling mode: accept Press and Contact only; LiftUp is inferred from the
+   * next poll returning count==0, so treating it as "no touch" is correct. */
+  uint8_t event = (buf[0] >> 6) & 0x03;
+  if (event != 0 && event != 2) return 0;
+
+  uint16_t raw_x = (((uint16_t)buf[0] & 0x0f) << 8) | (uint16_t)buf[1];
+  uint16_t raw_y = (((uint16_t)buf[2] & 0x0f) << 8) | (uint16_t)buf[3];
+  if (raw_x >= EXAMPLE_LCD_H_RES || raw_y >= EXAMPLE_LCD_V_RES) return 0;
+
+  *x = raw_x;
+  *y = raw_y;
+  return 1;
 }
 
 static uint8_t I2C_writr_buff(uint8_t reg, uint8_t *buf, uint8_t len)

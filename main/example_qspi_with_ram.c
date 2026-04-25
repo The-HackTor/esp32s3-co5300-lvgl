@@ -1,6 +1,4 @@
-
 #include <stdio.h>
-#include <inttypes.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -12,12 +10,13 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 #include "lvgl.h"
-#include "demos/lv_demos.h"
 #include "esp_lcd_sh8601.h"
 #include "touch_bsp.h"
 #include "read_lcd_id_bsp.h"
+#include "smart_flipper/smart_flipper.h"
 
 static const char *TAG = "example";
 static SemaphoreHandle_t lvgl_mux = NULL;
@@ -42,11 +41,14 @@ static uint8_t READ_LCD_ID = 0x00;
 #define EXAMPLE_PIN_NUM_LCD_RST           (GPIO_NUM_21)
 #define EXAMPLE_PIN_NUM_BK_LIGHT          (-1)
 
-// The pixel number in horizontal and vertical
 #define EXAMPLE_LCD_H_RES              466
 #define EXAMPLE_LCD_V_RES              466
 
+#define EXAMPLE_LCD_BYTES_PER_PIXEL    (2)
 #define EXAMPLE_LVGL_BUF_HEIGHT        (EXAMPLE_LCD_V_RES / 10)
+#define EXAMPLE_LVGL_BUF_BYTES         (EXAMPLE_LCD_H_RES * EXAMPLE_LVGL_BUF_HEIGHT * EXAMPLE_LCD_BYTES_PER_PIXEL)
+#define EXAMPLE_LVGL_PSRAM_POOL_BYTES  (4u * 1024u * 1024u)
+
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 #define EXAMPLE_LVGL_TASK_MAX_DELAY_MS 500
 #define EXAMPLE_LVGL_TASK_MIN_DELAY_MS 1
@@ -74,7 +76,6 @@ static const sh8601_lcd_init_cmd_t co5300_lcd_init_cmds[] =
     {0x51, (uint8_t []){0xFF}, 1, 0},
 };
 
-/* Called from ISR context when SPI transfer completes */
 static bool example_notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
                                             esp_lcd_panel_io_event_data_t *edata,
                                             void *user_ctx)
@@ -91,8 +92,19 @@ static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
     const int offsetx2 = (READ_LCD_ID == SH8601_ID) ? area->x2 : area->x2 + 0x06;
     const int offsety1 = area->y1;
     const int offsety2 = area->y2;
-
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
+}
+
+/* SH8601/CO5300 require even CASET/PASET windows for 16bpp data; odd-aligned
+ * invalidations (e.g. a colon glyph) get silently re-aligned by the panel and
+ * each row drifts. v9 equivalent of v8's disp_drv.rounder_cb. */
+static void example_lvgl_invalidate_area_cb(lv_event_t *e)
+{
+    lv_area_t *area = lv_event_get_invalidated_area(e);
+    area->x1 = area->x1 & ~1;
+    area->y1 = area->y1 & ~1;
+    area->x2 = area->x2 | 1;
+    area->y2 = area->y2 | 1;
 }
 
 static void example_lvgl_touch_cb(lv_indev_t *indev, lv_indev_data_t *data)
@@ -116,41 +128,15 @@ static void example_increase_lvgl_tick(void *arg)
 
 static bool example_lvgl_lock(int timeout_ms)
 {
-    assert(lvgl_mux && "bsp_display_start must be called first");
+    assert(lvgl_mux);
     const TickType_t timeout_ticks = (timeout_ms == -1) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);
     return xSemaphoreTake(lvgl_mux, timeout_ticks) == pdTRUE;
 }
 
 static void example_lvgl_unlock(void)
 {
-    assert(lvgl_mux && "bsp_display_start must be called first");
+    assert(lvgl_mux);
     xSemaphoreGive(lvgl_mux);
-}
-
-static void example_benchmark_end_cb(const lv_demo_benchmark_summary_t *summary)
-{
-    ESP_LOGI(TAG, "======== LVGL Benchmark Complete ========");
-    ESP_LOGI(TAG, "%-32s %6s %6s %10s %10s", "Scene", "FPS", "CPU%", "Render_ms", "Flush_ms");
-    for (const lv_demo_benchmark_scene_dsc_t *s = summary->scenes; s->create_cb; s++) {
-        if (s->measurement_cnt == 0) continue;
-        const uint32_t cnt = s->measurement_cnt;
-        ESP_LOGI(TAG, "%-32s %6" PRIu32 " %6" PRIu32 " %10" PRIu32 " %10" PRIu32,
-                 s->name,
-                 s->fps_avg / cnt,
-                 s->cpu_avg_usage / cnt,
-                 s->render_avg_time / cnt,
-                 s->flush_avg_time / cnt);
-    }
-    ESP_LOGI(TAG, "---- Totals (%" PRId32 " valid scenes) ----", summary->valid_scene_cnt);
-    if (summary->valid_scene_cnt > 0) {
-        const int32_t n = summary->valid_scene_cnt;
-        ESP_LOGI(TAG, "Avg FPS: %" PRId32 "  Avg CPU: %" PRId32 "%%  Avg Render: %" PRId32 " ms  Avg Flush: %" PRId32 " ms",
-                 summary->total_avg_fps / n,
-                 summary->total_avg_cpu / n,
-                 summary->total_avg_render_time / n,
-                 summary->total_avg_flush_time / n);
-    }
-    ESP_LOGI(TAG, "=========================================");
 }
 
 static void example_lvgl_port_task(void *arg)
@@ -176,7 +162,6 @@ void app_main(void)
     READ_LCD_ID = read_lcd_id();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
-    ESP_LOGI(TAG, "Turn off LCD backlight");
     gpio_config_t bk_gpio_config = {
         .mode = GPIO_MODE_OUTPUT,
         .pin_bit_mask = 1ULL << EXAMPLE_PIN_NUM_BK_LIGHT
@@ -197,7 +182,7 @@ void app_main(void)
     esp_lcd_panel_io_handle_t io_handle = NULL;
     const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(EXAMPLE_PIN_NUM_LCD_CS,
                                                                                  NULL,
-                                                                                 NULL); /* callback registered after lvgl_disp is created */
+                                                                                 NULL);
     sh8601_vendor_config_t vendor_config = {
         .flags = {
             .use_qspi_interface = 1,
@@ -225,36 +210,41 @@ void app_main(void)
     Touch_Init();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
-    ESP_LOGI(TAG, "Turn on LCD backlight");
     gpio_set_level(EXAMPLE_PIN_NUM_BK_LIGHT, EXAMPLE_LCD_BK_LIGHT_ON_LEVEL);
 #endif
 
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
-    /* Double-buffered draw buffers, 1/10 screen each, in internal SRAM.
-     * QSPI DMA at 40 MHz underflows when sourcing from PSRAM, so DMA-capable
-     * (MALLOC_CAP_DMA = internal SRAM) is required. */
-    uint32_t buf_size = EXAMPLE_LCD_H_RES * EXAMPLE_LVGL_BUF_HEIGHT * sizeof(lv_color_t);
-    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    /* PSRAM pool for widget trees / transient compositor layers. add_pool
+     * silently returns NULL if size > LV_MEM_SIZE + LV_MEM_POOL_EXPAND_SIZE
+     * (sdkconfig: LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=4096). */
+    void *psram_pool = heap_caps_malloc(EXAMPLE_LVGL_PSRAM_POOL_BYTES, MALLOC_CAP_SPIRAM);
+    assert(psram_pool);
+    if (lv_mem_add_pool(psram_pool, EXAMPLE_LVGL_PSRAM_POOL_BYTES) == NULL) {
+        ESP_LOGE(TAG, "lv_mem_add_pool returned NULL — check CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES");
+        abort();
+    }
+
+    /* Internal SRAM (DMA-capable) draw buffers. PSRAM-sourced QSPI DMA at
+     * 40 MHz underflows under CPU I-fetch contention. */
+    void *buf1 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
     assert(buf1);
-    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    void *buf2 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
     assert(buf2);
 
-    /* Create LVGL display (v9 API) */
     lvgl_disp = lv_display_create(EXAMPLE_LCD_H_RES, EXAMPLE_LCD_V_RES);
-    lv_display_set_flush_cb(lvgl_disp, example_lvgl_flush_cb);
-    lv_display_set_buffers(lvgl_disp, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    lv_display_set_user_data(lvgl_disp, panel_handle);
     lv_display_set_color_format(lvgl_disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
+    lv_display_set_flush_cb(lvgl_disp, example_lvgl_flush_cb);
+    lv_display_set_buffers(lvgl_disp, buf1, buf2, EXAMPLE_LVGL_BUF_BYTES, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_user_data(lvgl_disp, panel_handle);
+    lv_display_add_event_cb(lvgl_disp, example_lvgl_invalidate_area_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
-    /* Update panel IO callback context to point to lvgl display */
     esp_lcd_panel_io_callbacks_t cbs = {
         .on_color_trans_done = example_notify_lvgl_flush_ready,
     };
     esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, lvgl_disp);
 
-    /* Tick timer */
     const esp_timer_create_args_t lvgl_tick_timer_args = {
         .callback = &example_increase_lvgl_tick,
         .name = "lvgl_tick"
@@ -263,7 +253,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, EXAMPLE_LVGL_TICK_PERIOD_MS * 1000));
 
-    /* Touch input device (v9 API) */
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, example_lvgl_touch_cb);
@@ -271,12 +260,11 @@ void app_main(void)
 
     lvgl_mux = xSemaphoreCreateMutex();
     assert(lvgl_mux);
-    xTaskCreatePinnedToCore(example_lvgl_port_task, "LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY, NULL, 1);
+    xTaskCreate(example_lvgl_port_task, "LVGL", EXAMPLE_LVGL_TASK_STACK_SIZE, NULL, EXAMPLE_LVGL_TASK_PRIORITY, NULL);
 
-    ESP_LOGI(TAG, "Display LVGL benchmark demo");
+    ESP_LOGI(TAG, "Start smart_flipper UI");
     if (example_lvgl_lock(-1)) {
-        lv_demo_benchmark_set_end_cb(example_benchmark_end_cb);
-        lv_demo_benchmark();
+        smart_flipper_start();
         example_lvgl_unlock();
     }
 }

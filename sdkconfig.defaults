@@ -8,13 +8,27 @@ CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
 CONFIG_SPIRAM_RODATA=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_FREERTOS_HZ=1000
 
 # LVGL v9 settings
-CONFIG_LV_MEM_SIZE_KILOBYTES=128
+# Small internal TLSF pool for fast allocations; a 4 MB PSRAM pool is added
+# at runtime via lv_mem_add_pool() so LVGL spills big allocations there.
+#
+# LV_MEM_POOL_EXPAND_SIZE is the SIZING HINT used at compile time to compute
+# TLSF's FL_INDEX_MAX. It defines both the maximum single allocation AND
+# the maximum pool size that lv_tlsf_add_pool() will accept. Default 0
+# caps both at LV_MEM_SIZE (=64 KB), so any add_pool() call with a larger
+# region silently returns NULL and LVGL quietly runs with just the 64 KB
+# internal pool. 4096 KB of expand room raises FL_INDEX_MAX to 23, letting
+# TLSF manage pools/blocks up to 8 MB — comfortably above our 4 MB PSRAM
+# pool and any LVGL transient (widget trees, glyph scratch, simple layer
+# tiles, fade-composite buffers).
+CONFIG_LV_MEM_SIZE_KILOBYTES=64
+CONFIG_LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=4096
 CONFIG_LV_DEF_REFR_PERIOD=15
 CONFIG_LV_USE_SYSMON=y
 CONFIG_LV_USE_PERF_MONITOR=y
@@ -23,8 +37,16 @@ CONFIG_LV_USE_LOG=y
 CONFIG_LV_LOG_LEVEL_WARN=y
 CONFIG_LV_LOG_PRINTF=y
 CONFIG_LV_FONT_MONTSERRAT_12=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_16=y
-CONFIG_LV_USE_DEMO_WIDGETS=y
-CONFIG_LV_USE_DEMO_BENCHMARK=y
-CONFIG_LV_USE_DEMO_STRESS=y
-CONFIG_LV_USE_DEMO_MUSIC=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_46=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+# LVGL demos disabled; smart_flipper UI is the app now
+# CONFIG_LV_USE_DEMO_WIDGETS is not set
+# CONFIG_LV_USE_DEMO_BENCHMARK is not set
+# CONFIG_LV_USE_DEMO_STRESS is not set
+# CONFIG_LV_USE_DEMO_MUSIC is not set
