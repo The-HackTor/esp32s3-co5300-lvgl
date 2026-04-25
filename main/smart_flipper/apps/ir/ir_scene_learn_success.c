@@ -4,6 +4,7 @@
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/ir_protocol_color.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,8 +73,11 @@ void ir_scene_learn_success_on_enter(void *ctx)
 
     view_info_reset(app->info);
 
+    lv_color_t accent = COLOR_YELLOW;
     if(app->last_decoded_valid) {
-        view_info_set_header(app->info, app->last_decoded.protocol, COLOR_GREEN);
+        accent = ir_protocol_color(app->last_decoded.protocol);
+        view_info_set_header(app->info, app->last_decoded.protocol, accent);
+        view_info_add_pill(app->info, app->last_decoded.protocol, accent);
         snprintf(addr_buf, sizeof(addr_buf), "0x%08lX",
                  (unsigned long)app->last_decoded.address);
         snprintf(cmd_buf, sizeof(cmd_buf), "0x%08lX",
@@ -87,6 +91,11 @@ void ir_scene_learn_success_on_enter(void *ctx)
                  (unsigned)app->pending_button.signal.raw.n_timings);
         view_info_add_field(app->info, "Timings", cnt_buf, COLOR_PRIMARY);
         view_info_add_field(app->info, "Carrier", "38 kHz", COLOR_SECONDARY);
+    }
+
+    if(app->pending_raw_timings && app->pending_raw_n > 0) {
+        view_info_add_waveform(app->info, app->pending_raw_timings,
+                               app->pending_raw_n, accent);
     }
 
     view_info_add_button(app->info, LV_SYMBOL_SAVE " Save", COLOR_GREEN, btn_save, app);

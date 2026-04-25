@@ -158,6 +158,69 @@ void view_info_add_text_block(ViewInfo *info, const char *text,
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
 }
 
+void view_info_add_pill(ViewInfo *info, const char *text, lv_color_t color)
+{
+    lv_obj_t *pill = lv_obj_create(info->scroll);
+    lv_obj_set_size(pill, LV_SIZE_CONTENT, 36);
+    lv_obj_set_style_bg_color(pill, color, 0);
+    lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(pill, 18, 0);
+    lv_obj_set_style_border_width(pill, 0, 0);
+    lv_obj_set_style_pad_hor(pill, 18, 0);
+    lv_obj_set_style_pad_ver(pill, 0, 0);
+    lv_obj_remove_flag(pill, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *lbl = lv_label_create(pill);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
+    lv_obj_set_style_text_color(lbl, COLOR_BG, 0);
+    lv_obj_center(lbl);
+}
+
+void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
+                            size_t n_timings, lv_color_t color)
+{
+    lv_obj_t *row = lv_obj_create(info->scroll);
+    lv_obj_set_size(row, LV_PCT(100), 64);
+    lv_obj_set_style_bg_color(row, COLOR_CARD_BG, 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(row, 8, 0);
+    lv_obj_set_style_pad_all(row, 6, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_column(row, 1, 0);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
+                          LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+
+    if(!timings || n_timings == 0) return;
+
+    const size_t cap = n_timings < 64 ? n_timings : 64;
+    uint64_t total = 0;
+    for(size_t i = 0; i < cap; i++) total += timings[i];
+    if(total == 0) return;
+
+    const int32_t avail_w = DISP_W - 80 - 24;
+    const int32_t mark_h  = 48;
+    const int32_t space_h = 4;
+
+    for(size_t i = 0; i < cap; i++) {
+        const bool is_mark = (i & 1) == 0;
+        int32_t w = (int32_t)(((uint64_t)timings[i] * (uint64_t)avail_w) / total);
+        if(w < 1) w = 1;
+
+        lv_obj_t *bar = lv_obj_create(row);
+        lv_obj_set_size(bar, w, is_mark ? mark_h : space_h);
+        lv_obj_set_style_bg_color(bar, is_mark ? color : COLOR_DIM, 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(bar, 0, 0);
+        lv_obj_set_style_border_width(bar, 0, 0);
+        lv_obj_set_style_pad_all(bar, 0, 0);
+        lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
 void view_info_add_button(ViewInfo *info, const char *text, lv_color_t color,
                           ViewInfoButtonCb cb, void *ctx)
 {

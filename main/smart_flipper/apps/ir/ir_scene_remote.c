@@ -4,6 +4,7 @@
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/ir_protocol_color.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,8 +73,11 @@ void ir_scene_remote_on_enter(void *ctx)
 
     for(size_t i = 0; i < app->current_remote.button_count; i++) {
         const IrButton *b = &app->current_remote.buttons[i];
+        lv_color_t color = (b->signal.type == INFRARED_SIGNAL_PARSED)
+            ? ir_protocol_color(b->signal.parsed.protocol)
+            : COLOR_YELLOW;
         view_submenu_add_item(app->submenu, LV_SYMBOL_PLAY, b->name,
-                              COLOR_RED, (uint32_t)i, button_tapped, app);
+                              color, (uint32_t)i, button_tapped, app);
     }
 
     view_submenu_add_item(app->submenu, LV_SYMBOL_PLUS, "Learn Another",

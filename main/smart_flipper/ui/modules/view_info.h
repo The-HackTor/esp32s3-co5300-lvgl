@@ -2,6 +2,8 @@
 #define VIEW_INFO_H
 
 #include <lvgl.h>
+#include <stdint.h>
+#include <stddef.h>
 #include "ui/view_module.h"
 
 #define VIEW_INFO_MAX_BUTTONS 4
@@ -21,6 +23,9 @@ void view_info_add_field(ViewInfo *info, const char *key, const char *value, lv_
 void view_info_add_separator(ViewInfo *info);
 void view_info_add_text_block(ViewInfo *info, const char *text,
                               const lv_font_t *font, lv_color_t color);
+void view_info_add_pill(ViewInfo *info, const char *text, lv_color_t color);
+void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
+                            size_t n_timings, lv_color_t color);
 void view_info_add_button(ViewInfo *info, const char *text, lv_color_t color,
                           ViewInfoButtonCb cb, void *ctx);
 void view_info_add_button_row(ViewInfo *info,
