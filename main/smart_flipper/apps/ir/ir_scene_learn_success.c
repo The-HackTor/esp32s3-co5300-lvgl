@@ -3,8 +3,10 @@
 #include "ui/styles.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
+#include "lib/infrared/ir_codecs.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 static void btn_save(void *ctx)
 {
@@ -17,20 +19,39 @@ static void btn_send(void *ctx)
     IrApp *app = ctx;
     if(!app->pending_valid) return;
 
+    if(app->pending_raw_timings && app->pending_raw_n > 0) {
+        hw_rgb_set(255, 0, 0);
+        hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, 38000);
+        hw_rgb_off();
+        return;
+    }
     if(app->pending_button.signal.type == INFRARED_SIGNAL_RAW) {
         const InfraredSignalRaw *r = &app->pending_button.signal.raw;
         hw_rgb_set(255, 0, 0);
         hw_ir_send_raw(r->timings, r->n_timings,
                        r->freq_hz ? r->freq_hz : 38000);
         hw_rgb_off();
-    } else {
-        view_popup_reset(app->popup);
-        view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
-        view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
-        view_popup_set_text(app->popup,
-            "Replay of decoded protocols ships in the next slice.");
-        view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
+        return;
     }
+
+    uint16_t *enc_t = NULL;
+    size_t    enc_n = 0;
+    uint32_t  enc_hz = 38000;
+    esp_err_t err = ir_codecs_encode(&app->last_decoded, &enc_t, &enc_n, &enc_hz);
+    if(err == ESP_OK) {
+        hw_rgb_set(255, 0, 0);
+        hw_ir_send_raw(enc_t, enc_n, enc_hz);
+        hw_rgb_off();
+        free(enc_t);
+        return;
+    }
+
+    view_popup_reset(app->popup);
+    view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
+    view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
+    view_popup_set_text(app->popup,
+        "codec_db protocols need a per-protocol sender.");
+    view_dispatcher_switch_to_view(app->view_dispatcher, IrViewPopup);
 }
 
 static void btn_discard(void *ctx)

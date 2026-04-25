@@ -86,6 +86,17 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         app.pending_button.signal.parsed.address = dec.address;
         app.pending_button.signal.parsed.command = dec.command;
         app.pending_valid = true;
+
+        if(app.pending_raw_timings) free(app.pending_raw_timings);
+        app.pending_raw_timings = malloc(frame->n_timings * sizeof(uint16_t));
+        if(app.pending_raw_timings) {
+            memcpy(app.pending_raw_timings, frame->timings,
+                   frame->n_timings * sizeof(uint16_t));
+            app.pending_raw_n = frame->n_timings;
+        } else {
+            app.pending_raw_n = 0;
+        }
+
         scene_manager_handle_custom_event(&app.scene_mgr, IR_EVT_RX_DECODED);
     } else {
         app.last_decoded_valid = false;
@@ -184,6 +195,11 @@ static void on_leave(void)
     if(app.pending_valid) {
         ir_button_free(&app.pending_button);
         app.pending_valid = false;
+    }
+    if(app.pending_raw_timings) {
+        free(app.pending_raw_timings);
+        app.pending_raw_timings = NULL;
+        app.pending_raw_n = 0;
     }
     ir_remote_free(&app.current_remote);
 

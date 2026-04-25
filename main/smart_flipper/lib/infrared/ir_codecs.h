@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 /*
  * C-callable two-tier IR codec dispatch.
@@ -44,6 +45,17 @@ typedef struct {
  * fills *out on the first match. *out is zeroed on entry.
  */
 bool ir_codecs_decode(const uint16_t *timings, size_t n_timings, IrDecoded *out);
+
+/*
+ * Encode a decoded message back to a raw mark/space timing buffer suitable
+ * for hw_ir_send_raw. Caller frees *out_timings with free(). Returns
+ * ESP_OK on success, ESP_ERR_NOT_SUPPORTED if the protocol name doesn't
+ * match a Flipper-tier encoder (codec_db / IRremoteESP8266 protocols are
+ * decode-only for now).
+ */
+esp_err_t ir_codecs_encode(const IrDecoded *in,
+                           uint16_t **out_timings, size_t *out_n,
+                           uint32_t *out_freq_hz);
 
 #ifdef __cplusplus
 }  /* extern "C" */

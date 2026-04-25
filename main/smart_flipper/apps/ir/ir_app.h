@@ -59,6 +59,13 @@ typedef struct {
     lv_timer_t     *rx_drain_timer;
     IrDecoded       last_decoded;
     bool            last_decoded_valid;
+
+    /* Raw timing buffer kept alongside a parsed decode so live Send always
+     * works even when the encoder doesn't have the protocol yet. Cleared
+     * when the pending button is saved (parsed-only goes to .ir) or when
+     * the app exits. */
+    uint16_t       *pending_raw_timings;
+    size_t          pending_raw_n;
 } IrApp;
 
 void   ir_app_register(void);

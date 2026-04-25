@@ -25,8 +25,10 @@ static const char *TAG = "hw_ir";
 /* End-of-frame: 50 ms of no edge ends the capture. Plenty above the longest
  * inter-frame gap of any AC remote (~20 ms). */
 #define IR_RX_TIMEOUT_NS    50000000ULL
-/* Anything shorter than 100 us is noise (TSOP can't resolve faster anyway). */
-#define IR_RX_MIN_NS        100000ULL
+/* RMT glitch filter -- sub-microsecond floor. IDF v6.1 caps this at the
+ * RMT source clock period (~3200 ns on this chip), so it cannot serve as a
+ * "noise floor"; the TSOP14438 itself rejects sub-100us edges upstream. */
+#define IR_RX_MIN_NS        1000ULL
 /* Cap individual phase length at 30 ms; longer gaps end the frame. */
 #define IR_RX_MAX_NS        30000000ULL
 

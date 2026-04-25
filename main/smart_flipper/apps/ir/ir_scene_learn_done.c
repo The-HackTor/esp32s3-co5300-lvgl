@@ -3,6 +3,7 @@
 #include "ui/styles.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void popup_done(void *ctx)
@@ -35,6 +36,11 @@ void ir_scene_learn_done_on_enter(void *ctx)
         ir_remote_append_button(&app->current_remote, &app->pending_button);
         ir_button_free(&app->pending_button);
         app->pending_valid = false;
+    }
+    if(app->pending_raw_timings) {
+        free(app->pending_raw_timings);
+        app->pending_raw_timings = NULL;
+        app->pending_raw_n = 0;
     }
 
     esp_err_t err = ir_remote_save(&app->current_remote);

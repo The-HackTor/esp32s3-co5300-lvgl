@@ -16,6 +16,7 @@
 #include "infrared.h"
 #include "codec_db.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static void copy_decoded(IrDecoded *out, const InfraredMessage *msg)
@@ -84,4 +85,58 @@ bool ir_codecs_decode(const uint16_t *timings, size_t n_timings, IrDecoded *out)
     if(decode_flipper(timings, n_timings, out))   return true;
     if(decode_codec_db(timings, n_timings, out))  return true;
     return false;
+}
+
+esp_err_t ir_codecs_encode(const IrDecoded *in,
+                           uint16_t **out_timings, size_t *out_n,
+                           uint32_t *out_freq_hz)
+{
+    if(!in || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
+
+    InfraredProtocol proto = infrared_get_protocol_by_name(in->protocol);
+    if(!infrared_is_protocol_valid(proto)) return ESP_ERR_NOT_SUPPORTED;
+
+    InfraredEncoderHandler *handler = infrared_alloc_encoder();
+    if(!handler) return ESP_ERR_NO_MEM;
+
+    InfraredMessage msg = {
+        .protocol = proto,
+        .address  = in->address,
+        .command  = in->command,
+        .repeat   = false,
+    };
+    infrared_reset_encoder(handler, &msg);
+
+    size_t cap = 256;
+    size_t n   = 0;
+    uint16_t *buf = malloc(cap * sizeof(uint16_t));
+    if(!buf) { infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
+
+    for(;;) {
+        uint32_t duration = 0;
+        bool     level    = false;
+        InfraredStatus s = infrared_encode(handler, &duration, &level);
+        if(s == InfraredStatusError) {
+            free(buf);
+            infrared_free_encoder(handler);
+            return ESP_FAIL;
+        }
+        if(n == cap) {
+            size_t new_cap = cap * 2;
+            uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
+            if(!r) { free(buf); infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
+            buf = r;
+            cap = new_cap;
+        }
+        if(duration > UINT16_MAX) duration = UINT16_MAX;
+        buf[n++] = (uint16_t)duration;
+        if(s == InfraredStatusDone) break;
+    }
+
+    *out_timings = buf;
+    *out_n       = n;
+    *out_freq_hz = infrared_get_protocol_frequency(proto);
+
+    infrared_free_encoder(handler);
+    return ESP_OK;
 }
