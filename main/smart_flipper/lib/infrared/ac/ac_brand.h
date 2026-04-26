@@ -52,6 +52,8 @@ extern const AcBrand ac_brand_daikin;
 extern const AcBrand ac_brand_mitsubishi;
 extern const AcBrand ac_brand_lg;
 extern const AcBrand ac_brand_gree;
+extern const AcBrand ac_brand_coolix;
+extern const AcBrand ac_brand_panasonic;
 
 extern const AcBrand *const ac_brand_table[];
 extern const size_t        ac_brand_count;

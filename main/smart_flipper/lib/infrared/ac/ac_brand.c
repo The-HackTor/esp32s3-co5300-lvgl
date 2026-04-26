@@ -23,6 +23,8 @@ const AcBrand *const ac_brand_table[] = {
     &ac_brand_mitsubishi,
     &ac_brand_lg,
     &ac_brand_gree,
+    &ac_brand_coolix,
+    &ac_brand_panasonic,
 };
 const size_t ac_brand_count = sizeof(ac_brand_table) / sizeof(ac_brand_table[0]);
 
