@@ -136,3 +136,10 @@ const IrButton *ir_universal_db_button_signal(IrUniversalCategory cat,
     if(i >= db->remote.button_count) return NULL;
     return &db->remote.buttons[i];
 }
+
+const IrRemote *ir_universal_db_get_remote(IrUniversalCategory cat)
+{
+    if((unsigned)cat >= IR_UNIVERSAL_CAT_COUNT) return NULL;
+    if(!s_dbs[cat].loaded) return NULL;
+    return &s_dbs[cat].remote;
+}

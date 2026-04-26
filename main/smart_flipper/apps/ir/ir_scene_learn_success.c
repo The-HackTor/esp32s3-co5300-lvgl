@@ -6,9 +6,14 @@
 #include "hw/hw_rgb.h"
 #include "lib/infrared/ir_codecs.h"
 #include "lib/infrared/ir_protocol_color.h"
+#include "lib/infrared/universal_db/ir_universal_index.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+
+static IrUniversalCategory s_match_cat;
+static bool                s_match_valid;
+static char                s_match_label[IR_REMOTE_NAME_MAX];
 
 static void btn_save(void *ctx)
 {
@@ -67,6 +72,16 @@ static void btn_discard(void *ctx)
     scene_manager_previous_scene(&app->scene_mgr);
 }
 
+static void btn_load_universal(void *ctx)
+{
+    IrApp *app = ctx;
+    if(!s_match_valid) return;
+    app->universal_category = (int)s_match_cat;
+    scene_manager_set_scene_state(&app->scene_mgr, ir_SCENE_Universal,
+                                  (uint32_t)s_match_cat);
+    scene_manager_next_scene(&app->scene_mgr, ir_SCENE_UniversalCategory);
+}
+
 void ir_scene_learn_success_on_enter(void *ctx)
 {
     IrApp *app = ctx;
@@ -74,6 +89,9 @@ void ir_scene_learn_success_on_enter(void *ctx)
     char cmd_buf[24];
 
     view_info_reset(app->info);
+
+    s_match_valid = false;
+    s_match_label[0] = '\0';
 
     lv_color_t accent = COLOR_YELLOW;
     if(app->last_decoded_valid) {
@@ -86,6 +104,19 @@ void ir_scene_learn_success_on_enter(void *ctx)
                  (unsigned long)app->last_decoded.command);
         view_info_add_field(app->info, "Address", addr_buf, COLOR_PRIMARY);
         view_info_add_field(app->info, "Command", cmd_buf, COLOR_PRIMARY);
+
+        s_match_valid = ir_universal_index_match(app->last_decoded.protocol,
+                                                 app->last_decoded.address,
+                                                 &s_match_cat,
+                                                 s_match_label,
+                                                 sizeof(s_match_label));
+        if(s_match_valid) {
+            char match_buf[48];
+            snprintf(match_buf, sizeof(match_buf), "%s (%s)",
+                     ir_universal_category_label(s_match_cat),
+                     s_match_label);
+            view_info_add_field(app->info, "Match", match_buf, COLOR_GREEN);
+        }
     } else {
         view_info_set_header(app->info, "Raw Capture", COLOR_YELLOW);
         char cnt_buf[32];
@@ -100,6 +131,13 @@ void ir_scene_learn_success_on_enter(void *ctx)
                                app->pending_raw_n, accent);
     }
 
+    if(s_match_valid) {
+        char match_btn[48];
+        snprintf(match_btn, sizeof(match_btn), LV_SYMBOL_LIST " Open %s",
+                 ir_universal_category_label(s_match_cat));
+        view_info_add_button(app->info, match_btn, COLOR_GREEN,
+                             btn_load_universal, app);
+    }
     view_info_add_button(app->info, LV_SYMBOL_SAVE " Save", COLOR_GREEN, btn_save, app);
     view_info_add_button_row(app->info,
                              LV_SYMBOL_PLAY " Send", COLOR_RED, btn_send, app,

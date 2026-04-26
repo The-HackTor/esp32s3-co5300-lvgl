@@ -7,6 +7,7 @@
 #include "hw/hw_rgb.h"
 #include "store/ir_store.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
+#include "lib/infrared/universal_db/ir_universal_index.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -166,6 +167,7 @@ static void on_init(void)
     app.rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(IrRxFrame *));
     ir_store_init();
     ir_universal_db_init();
+    ir_universal_index_init();
 }
 
 static void on_enter(void)

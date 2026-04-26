@@ -13,4 +13,6 @@ const IrButton *ir_universal_db_button_signal(IrUniversalCategory cat,
                                               size_t button_idx,
                                               size_t signal_idx);
 
+const IrRemote *ir_universal_db_get_remote(IrUniversalCategory cat);
+
 #endif
