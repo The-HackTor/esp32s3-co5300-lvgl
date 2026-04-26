@@ -19,6 +19,7 @@
 #include "smart_flipper/smart_flipper.h"
 #include "smart_flipper/hw/hw_rgb.h"
 #include "smart_flipper/hw/hw_ir.h"
+#include "smart_flipper/hw/hw_selftest.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -323,6 +324,10 @@ void app_main(void)
     example_mount_sdcard();
 
     hw_ir_init();
+
+    /* TEMP: aggressive 60s HW self-test (RGB + IR TX). Remove this single
+     * line + the hw_selftest.h include when the bench is verified. */
+    hw_selftest_run();
 
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
