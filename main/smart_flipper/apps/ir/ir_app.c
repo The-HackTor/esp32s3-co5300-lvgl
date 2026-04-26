@@ -19,6 +19,7 @@
 
 #define RX_DRAIN_INTERVAL_MS 30
 #define RX_QUEUE_DEPTH 2
+#define RX_TX_ECHO_GUARD_US (100 * 1000)  /* drop RX frames within 100ms of TX */
 
 static IrApp app;
 
@@ -76,6 +77,11 @@ static void rx_drain_timer_cb(lv_timer_t *t)
     IrRxFrame *frame = NULL;
     if(xQueueReceive(app.rx_queue, &frame, 0) != pdTRUE) return;
     if(!frame) return;
+
+    if(hw_ir_tx_was_recent_us(RX_TX_ECHO_GUARD_US)) {
+        free(frame);
+        return;
+    }
 
     hw_rgb_pulse(0, 255, 0, 100);
 

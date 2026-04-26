@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "esp_err.h"
 
 /*
@@ -63,5 +64,10 @@ typedef void (*hw_ir_rx_cb_t)(const uint16_t *timings, size_t n_timings, void *c
 
 void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx);
 void hw_ir_rx_stop(void);
+
+/* True if the last TX completed within the given microsecond window.
+ * Use to gate RX frames that are likely just self-echo from our own LEDs
+ * leaking into the TSOP. window_us=100000 (100 ms) is a safe default. */
+bool hw_ir_tx_was_recent_us(int64_t window_us);
 
 #endif

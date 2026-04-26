@@ -8,6 +8,7 @@
 #include "driver/rmt_rx.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +40,7 @@ static rmt_channel_handle_t  s_tx_chan;
 static rmt_encoder_handle_t  s_copy_encoder;
 static uint32_t              s_carrier_hz_active;
 static bool                  s_inited;
+static int64_t               s_last_tx_done_us;
 
 /* RX state */
 static rmt_channel_handle_t  s_rx_chan;
@@ -153,7 +155,15 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
         ESP_LOGE(TAG, "rmt_transmit: %s", esp_err_to_name(err));
         return err;
     }
-    return rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
+    err = rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
+    s_last_tx_done_us = esp_timer_get_time();
+    return err;
+}
+
+bool hw_ir_tx_was_recent_us(int64_t window_us)
+{
+    if(s_last_tx_done_us == 0) return false;
+    return (esp_timer_get_time() - s_last_tx_done_us) < window_us;
 }
 
 /* ---- Hold-to-repeat TX ---- */
