@@ -5,9 +5,11 @@
 #include <stdlib.h>
 
 typedef struct {
-    ViewSubmenuCallback cb;
-    void               *ctx;
-    uint32_t            index;
+    ViewSubmenuCallback   cb;
+    ViewSubmenuPressCb    on_press;
+    ViewSubmenuReleaseCb  on_release;
+    void                 *ctx;
+    uint32_t              index;
 } ItemCtx;
 
 struct ViewSubmenu {
@@ -49,6 +51,18 @@ static void item_clicked(lv_event_t *e)
 {
     ItemCtx *ctx = lv_event_get_user_data(e);
     if(ctx && ctx->cb) ctx->cb(ctx->ctx, ctx->index);
+}
+
+static void item_pressed(lv_event_t *e)
+{
+    ItemCtx *ctx = lv_event_get_user_data(e);
+    if(ctx && ctx->on_press) ctx->on_press(ctx->ctx, ctx->index);
+}
+
+static void item_released(lv_event_t *e)
+{
+    ItemCtx *ctx = lv_event_get_user_data(e);
+    if(ctx && ctx->on_release) ctx->on_release(ctx->ctx, ctx->index);
 }
 
 /* --- ViewModule vtable --- */
@@ -166,24 +180,25 @@ void view_submenu_set_header(ViewSubmenu *submenu, const char *title, lv_color_t
     lv_obj_set_style_text_color(submenu->title_lbl, accent, 0);
 }
 
-void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *label,
-                           lv_color_t color, uint32_t index,
-                           ViewSubmenuCallback cb, void *ctx)
+static ItemCtx *add_row(ViewSubmenu *submenu, const char *icon, const char *label,
+                        lv_color_t color, uint32_t index, void *ctx,
+                        lv_obj_t **out_btn)
 {
     if(submenu->item_count == submenu->item_cap) {
         uint32_t new_cap = submenu->item_cap ? submenu->item_cap * 2 : 8;
         ItemCtx *grown = realloc(submenu->items, new_cap * sizeof(ItemCtx));
-        if(!grown) return;
+        if(!grown) return NULL;
         submenu->items   = grown;
         submenu->item_cap = new_cap;
     }
 
     ItemCtx *ictx = &submenu->items[submenu->item_count];
-    ictx->cb = cb;
-    ictx->ctx = ctx;
-    ictx->index = index;
+    ictx->cb         = NULL;
+    ictx->on_press   = NULL;
+    ictx->on_release = NULL;
+    ictx->ctx        = ctx;
+    ictx->index      = index;
 
-    /* Separator line before each item (except first) */
     if(submenu->item_count > 0) {
         lv_obj_t *line = lv_obj_create(submenu->list);
         lv_obj_set_size(line, lv_pct(70), 1);
@@ -193,7 +208,6 @@ void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *l
         lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     }
 
-    /* Transparent row -- matching arc menu style */
     lv_obj_t *btn = lv_obj_create(submenu->list);
     lv_obj_set_size(btn, lv_pct(100), MENU_ITEM_HEIGHT);
     lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
@@ -203,7 +217,6 @@ void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *l
     lv_obj_set_style_pad_all(btn, 0, 0);
     lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
-    lv_obj_add_event_cb(btn, item_clicked, LV_EVENT_CLICKED, ictx);
 
     lv_obj_t *icn = lv_label_create(btn);
     lv_label_set_text(icn, icon);
@@ -218,8 +231,39 @@ void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *l
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 100, 0);
 
     submenu->item_count++;
+    if(out_btn) *out_btn = btn;
+    return ictx;
+}
 
-    /* Apply barrel effect so items are styled correctly before first scroll */
+void view_submenu_add_item(ViewSubmenu *submenu, const char *icon, const char *label,
+                           lv_color_t color, uint32_t index,
+                           ViewSubmenuCallback cb, void *ctx)
+{
+    lv_obj_t *btn = NULL;
+    ItemCtx *ictx = add_row(submenu, icon, label, color, index, ctx, &btn);
+    if(!ictx) return;
+    ictx->cb = cb;
+    lv_obj_add_event_cb(btn, item_clicked, LV_EVENT_CLICKED, ictx);
+
+    lv_obj_update_layout(submenu->list);
+    apply_barrel(submenu->list);
+}
+
+void view_submenu_add_item_holdable(ViewSubmenu *submenu, const char *icon, const char *label,
+                                    lv_color_t color, uint32_t index,
+                                    ViewSubmenuPressCb on_press,
+                                    ViewSubmenuReleaseCb on_release,
+                                    void *ctx)
+{
+    lv_obj_t *btn = NULL;
+    ItemCtx *ictx = add_row(submenu, icon, label, color, index, ctx, &btn);
+    if(!ictx) return;
+    ictx->on_press   = on_press;
+    ictx->on_release = on_release;
+    lv_obj_add_event_cb(btn, item_pressed,  LV_EVENT_PRESSED,    ictx);
+    lv_obj_add_event_cb(btn, item_released, LV_EVENT_RELEASED,   ictx);
+    lv_obj_add_event_cb(btn, item_released, LV_EVENT_PRESS_LOST, ictx);
+
     lv_obj_update_layout(submenu->list);
     apply_barrel(submenu->list);
 }

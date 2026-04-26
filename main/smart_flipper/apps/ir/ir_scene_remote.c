@@ -14,7 +14,9 @@
 #define ADD_BUTTON_INDEX  0xFFFFFFFEu
 #define EDIT_BUTTON_INDEX 0xFFFFFFFDu
 
-static void button_tapped(void *ctx, uint32_t index)
+#define IR_REPEAT_PERIOD_MS 110
+
+static void pseudo_tapped(void *ctx, uint32_t index)
 {
     IrApp *app = ctx;
 
@@ -27,21 +29,24 @@ static void button_tapped(void *ctx, uint32_t index)
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Learn);
         return;
     }
-
     if(index == EDIT_BUTTON_INDEX) {
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Edit);
-        return;
     }
+}
 
+static void button_pressed(void *ctx, uint32_t index)
+{
+    IrApp *app = ctx;
     if(index >= app->current_remote.button_count) return;
     const IrButton *btn = &app->current_remote.buttons[index];
 
+    hw_rgb_set(255, 0, 0);
+
     if(btn->signal.type == INFRARED_SIGNAL_RAW) {
         const InfraredSignalRaw *r = &btn->signal.raw;
-        hw_rgb_set(255, 0, 0);
-        hw_ir_send_raw(r->timings, r->n_timings,
-                       r->freq_hz ? r->freq_hz : 38000);
-        hw_rgb_off();
+        hw_ir_send_repeat_start(r->timings, r->n_timings,
+                                r->freq_hz ? r->freq_hz : 38000,
+                                IR_REPEAT_PERIOD_MS);
         return;
     }
 
@@ -56,13 +61,12 @@ static void button_tapped(void *ctx, uint32_t index)
     uint32_t  enc_hz = 38000;
     esp_err_t err = ir_codecs_encode(&msg, &enc_t, &enc_n, &enc_hz);
     if(err == ESP_OK) {
-        hw_rgb_set(255, 0, 0);
-        hw_ir_send_raw(enc_t, enc_n, enc_hz);
-        hw_rgb_off();
+        hw_ir_send_repeat_start(enc_t, enc_n, enc_hz, IR_REPEAT_PERIOD_MS);
         free(enc_t);
         return;
     }
 
+    hw_rgb_off();
     view_popup_reset(app->popup);
     view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
     view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
@@ -70,6 +74,14 @@ static void button_tapped(void *ctx, uint32_t index)
         "codec_db protocols need a per-protocol sender.");
     view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
                                             (uint32_t)TransitionFadeIn, 120);
+}
+
+static void button_released(void *ctx, uint32_t index)
+{
+    (void)ctx;
+    (void)index;
+    hw_ir_send_repeat_stop();
+    hw_rgb_off();
 }
 
 void ir_scene_remote_on_enter(void *ctx)
@@ -84,14 +96,15 @@ void ir_scene_remote_on_enter(void *ctx)
         lv_color_t color = (b->signal.type == INFRARED_SIGNAL_PARSED)
             ? ir_protocol_color(b->signal.parsed.protocol)
             : COLOR_YELLOW;
-        view_submenu_add_item(app->submenu, LV_SYMBOL_PLAY, b->name,
-                              color, (uint32_t)i, button_tapped, app);
+        view_submenu_add_item_holdable(app->submenu, LV_SYMBOL_PLAY, b->name,
+                                       color, (uint32_t)i,
+                                       button_pressed, button_released, app);
     }
 
     view_submenu_add_item(app->submenu, LV_SYMBOL_PLUS, "Learn Another",
-                          COLOR_BLUE, ADD_BUTTON_INDEX, button_tapped, app);
+                          COLOR_BLUE, ADD_BUTTON_INDEX, pseudo_tapped, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_SETTINGS, "Edit",
-                          COLOR_YELLOW, EDIT_BUTTON_INDEX, button_tapped, app);
+                          COLOR_YELLOW, EDIT_BUTTON_INDEX, pseudo_tapped, app);
 
     view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
                                             (uint32_t)TransitionSlideLeft, 180);
@@ -107,6 +120,8 @@ bool ir_scene_remote_on_event(void *ctx, SceneEvent event)
 void ir_scene_remote_on_exit(void *ctx)
 {
     IrApp *app = ctx;
+    hw_ir_send_repeat_stop();
+    hw_rgb_off();
     view_submenu_reset(app->submenu);
     view_popup_reset(app->popup);
 }

@@ -37,6 +37,18 @@ void hw_ir_init(void);
 esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t carrier_hz);
 
 /*
+ * Hold-to-repeat TX. Spawns a worker that retransmits the burst every
+ * period_ms until hw_ir_send_repeat_stop is called. The first burst fires
+ * synchronously inside _start so a quick tap still produces one TX.
+ *
+ * Buffer is copied internally; caller may free immediately. Calling _start
+ * while already repeating returns ESP_ERR_INVALID_STATE.
+ */
+esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
+                                  uint32_t carrier_hz, uint32_t period_ms);
+void      hw_ir_send_repeat_stop(void);
+
+/*
  * RX: edge-capture into a PSRAM-backed buffer. Each captured frame is a
  * sequence of alternating mark/space durations in microseconds, terminated
  * by an end-of-frame timeout (no edges for ~50 ms). The library decodes

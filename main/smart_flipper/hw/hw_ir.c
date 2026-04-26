@@ -7,6 +7,8 @@
 #include "driver/rmt_rx.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include <stdatomic.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "hw_ir";
@@ -149,6 +151,72 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
         return err;
     }
     return rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
+}
+
+/* ---- Hold-to-repeat TX ---- */
+
+static uint16_t      *s_repeat_timings;
+static size_t         s_repeat_n;
+static uint32_t       s_repeat_freq_hz;
+static uint32_t       s_repeat_period_ms;
+static TaskHandle_t   s_repeat_task;
+static volatile bool  s_repeat_running;
+
+static void repeat_task_fn(void *arg)
+{
+    (void)arg;
+    while(s_repeat_running) {
+        vTaskDelay(pdMS_TO_TICKS(s_repeat_period_ms));
+        if(!s_repeat_running) break;
+        hw_ir_send_raw(s_repeat_timings, s_repeat_n, s_repeat_freq_hz);
+    }
+    free(s_repeat_timings);
+    s_repeat_timings = NULL;
+    s_repeat_n = 0;
+    s_repeat_task = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
+                                  uint32_t carrier_hz, uint32_t period_ms)
+{
+    if(!s_inited)                       return ESP_ERR_INVALID_STATE;
+    if(timings == NULL || n_timings == 0) return ESP_ERR_INVALID_ARG;
+    if(s_repeat_running)                return ESP_ERR_INVALID_STATE;
+
+    uint16_t *copy = malloc(n_timings * sizeof(uint16_t));
+    if(!copy) return ESP_ERR_NO_MEM;
+    memcpy(copy, timings, n_timings * sizeof(uint16_t));
+
+    s_repeat_timings   = copy;
+    s_repeat_n         = n_timings;
+    s_repeat_freq_hz   = carrier_hz ? carrier_hz : 38000;
+    s_repeat_period_ms = period_ms ? period_ms : 110;
+
+    /* First burst synchronous so a quick tap still TXs once. */
+    esp_err_t err = hw_ir_send_raw(copy, n_timings, s_repeat_freq_hz);
+    if(err != ESP_OK) {
+        free(copy);
+        s_repeat_timings = NULL;
+        return err;
+    }
+
+    s_repeat_running = true;
+    if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, NULL,
+                               tskIDLE_PRIORITY + 3, &s_repeat_task, 1) != pdPASS) {
+        s_repeat_running = false;
+        free(copy);
+        s_repeat_timings = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+void hw_ir_send_repeat_stop(void)
+{
+    if(!s_repeat_running) return;
+    s_repeat_running = false;
+    /* Task self-frees buffer + task handle on its next loop iteration. */
 }
 
 /* ---- RX ---- */
