@@ -111,6 +111,7 @@ void view_dispatcher_switch_to_view_animated(ViewDispatcher *vd, uint32_t view_i
     ViewEntry *next = find_entry(vd, view_id);
     if(next) {
         incoming = view_module_get_view(&next->module);
+        lv_anim_delete(incoming, NULL);
         lv_obj_remove_flag(incoming, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_x(incoming, 0);
         lv_obj_set_style_opa(incoming, LV_OPA_COVER, 0);

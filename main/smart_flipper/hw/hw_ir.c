@@ -158,25 +158,29 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
 
 /* ---- Hold-to-repeat TX ---- */
 
-static uint16_t      *s_repeat_timings;
-static size_t         s_repeat_n;
-static uint32_t       s_repeat_freq_hz;
-static uint32_t       s_repeat_period_ms;
-static TaskHandle_t   s_repeat_task;
-static volatile bool  s_repeat_running;
+typedef struct {
+    uint16_t *timings;
+    size_t    n;
+    uint32_t  freq_hz;
+    uint32_t  period_ms;
+} repeat_args_t;
+
+static TaskHandle_t       s_repeat_task;
+static SemaphoreHandle_t  s_repeat_done_sem;
+static volatile bool      s_repeat_running;
 
 static void repeat_task_fn(void *arg)
 {
-    (void)arg;
+    repeat_args_t *a = arg;
     while(s_repeat_running) {
-        vTaskDelay(pdMS_TO_TICKS(s_repeat_period_ms));
+        vTaskDelay(pdMS_TO_TICKS(a->period_ms));
         if(!s_repeat_running) break;
-        hw_ir_send_raw(s_repeat_timings, s_repeat_n, s_repeat_freq_hz);
+        hw_ir_send_raw(a->timings, a->n, a->freq_hz);
     }
-    free(s_repeat_timings);
-    s_repeat_timings = NULL;
-    s_repeat_n = 0;
+    free(a->timings);
+    free(a);
     s_repeat_task = NULL;
+    if(s_repeat_done_sem) xSemaphoreGive(s_repeat_done_sem);
     vTaskDelete(NULL);
 }
 
@@ -187,29 +191,28 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
     if(timings == NULL || n_timings == 0) return ESP_ERR_INVALID_ARG;
     if(s_repeat_running)                return ESP_ERR_INVALID_STATE;
 
-    uint16_t *copy = malloc(n_timings * sizeof(uint16_t));
-    if(!copy) return ESP_ERR_NO_MEM;
-    memcpy(copy, timings, n_timings * sizeof(uint16_t));
+    repeat_args_t *a = malloc(sizeof(repeat_args_t));
+    if(!a) return ESP_ERR_NO_MEM;
+    a->timings = malloc(n_timings * sizeof(uint16_t));
+    if(!a->timings) { free(a); return ESP_ERR_NO_MEM; }
+    memcpy(a->timings, timings, n_timings * sizeof(uint16_t));
+    a->n         = n_timings;
+    a->freq_hz   = carrier_hz ? carrier_hz : 38000;
+    a->period_ms = period_ms ? period_ms : 110;
 
-    s_repeat_timings   = copy;
-    s_repeat_n         = n_timings;
-    s_repeat_freq_hz   = carrier_hz ? carrier_hz : 38000;
-    s_repeat_period_ms = period_ms ? period_ms : 110;
-
-    /* First burst synchronous so a quick tap still TXs once. */
-    esp_err_t err = hw_ir_send_raw(copy, n_timings, s_repeat_freq_hz);
+    esp_err_t err = hw_ir_send_raw(a->timings, n_timings, a->freq_hz);
     if(err != ESP_OK) {
-        free(copy);
-        s_repeat_timings = NULL;
+        free(a->timings); free(a);
         return err;
     }
 
+    if(!s_repeat_done_sem) s_repeat_done_sem = xSemaphoreCreateBinary();
+
     s_repeat_running = true;
-    if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, NULL,
+    if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, a,
                                tskIDLE_PRIORITY + 3, &s_repeat_task, 1) != pdPASS) {
         s_repeat_running = false;
-        free(copy);
-        s_repeat_timings = NULL;
+        free(a->timings); free(a);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
@@ -219,7 +222,9 @@ void hw_ir_send_repeat_stop(void)
 {
     if(!s_repeat_running) return;
     s_repeat_running = false;
-    /* Task self-frees buffer + task handle on its next loop iteration. */
+    if(s_repeat_done_sem) {
+        xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(500));
+    }
 }
 
 /* ---- RX ---- */
