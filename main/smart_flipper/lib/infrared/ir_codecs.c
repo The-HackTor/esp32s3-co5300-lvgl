@@ -15,6 +15,7 @@
 #include "ir_codecs.h"
 #include "infrared.h"
 #include "codec_db.h"
+#include "codec_db_send.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -94,7 +95,12 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     if(!in || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
 
     InfraredProtocol proto = infrared_get_protocol_by_name(in->protocol);
-    if(!infrared_is_protocol_valid(proto)) return ESP_ERR_NOT_SUPPORTED;
+    if(!infrared_is_protocol_valid(proto)) {
+        ir_codec_send_fn fn = codec_db_send_lookup(in->protocol);
+        if(fn) return fn(in->address, in->command, in->raw_value,
+                         out_timings, out_n, out_freq_hz);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
 
     InfraredEncoderHandler *handler = infrared_alloc_encoder();
     if(!handler) return ESP_ERR_NO_MEM;
