@@ -28,6 +28,10 @@ const AcBrand *const ac_brand_table[] = {
     &ac_brand_toshiba,
     &ac_brand_sharp,
     &ac_brand_hitachi,
+    &ac_brand_whirlpool,
+    &ac_brand_kelvinator,
+    &ac_brand_trotec,
+    &ac_brand_sanyo,
 };
 const size_t ac_brand_count = sizeof(ac_brand_table) / sizeof(ac_brand_table[0]);
 
