@@ -41,6 +41,17 @@ typedef struct {
 const char *ac_mode_label(AcMode m);
 const char *ac_fan_label(AcFan f);
 
+/* Push the 8 LSB-first bits of `b` as bit-mark + (one|zero)-space pairs. */
+void ac_push_byte_lsb(uint16_t *buf, size_t cap, size_t *n, uint8_t b,
+                      uint16_t bit_mark, uint16_t one_space, uint16_t zero_space);
+
+uint8_t ac_sum_bytes(const uint8_t *data, size_t n);
+
 extern const AcBrand ac_brand_samsung;
+extern const AcBrand ac_brand_daikin;
+extern const AcBrand ac_brand_mitsubishi;
+
+extern const AcBrand *const ac_brand_table[];
+extern const size_t        ac_brand_count;
 
 #endif

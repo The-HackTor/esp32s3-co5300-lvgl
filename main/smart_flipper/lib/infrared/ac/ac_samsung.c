@@ -81,16 +81,6 @@ static void apply_state(uint8_t state[SAMSUNG_AC_BYTES], const AcState *s)
     state[9] = (state[9] & 0x0F) | (((s2 >> 4) & 0x0F) << 4);
 }
 
-static void push_byte_lsb(uint16_t *buf, size_t cap, size_t *n, uint8_t b)
-{
-    for(int bit = 0; bit < 8; bit++) {
-        if(*n + 2 > cap) return;
-        buf[(*n)++] = IR_SAMSUNG_AC_BIT_MARK;
-        buf[(*n)++] = (b & (1 << bit)) ? IR_SAMSUNG_AC_ONE_SPACE
-                                       : IR_SAMSUNG_AC_ZERO_SPACE;
-    }
-}
-
 static esp_err_t samsung_encode(const AcState *s,
                                 uint16_t **out_timings, size_t *out_n,
                                 uint32_t *out_freq_hz)
@@ -114,7 +104,11 @@ static esp_err_t samsung_encode(const AcState *s,
         buf[n++] = IR_SAMSUNG_AC_SECTION_MARK;
         buf[n++] = IR_SAMSUNG_AC_SECTION_SPACE;
         for(int i = 0; i < SAMSUNG_AC_SECTION; i++) {
-            push_byte_lsb(buf, cap, &n, state[sec * SAMSUNG_AC_SECTION + i]);
+            ac_push_byte_lsb(buf, cap, &n,
+                             state[sec * SAMSUNG_AC_SECTION + i],
+                             IR_SAMSUNG_AC_BIT_MARK,
+                             IR_SAMSUNG_AC_ONE_SPACE,
+                             IR_SAMSUNG_AC_ZERO_SPACE);
         }
         buf[n++] = IR_SAMSUNG_AC_BIT_MARK;
         buf[n++] = (sec == 0) ? SECTION_GAP_US : DEFAULT_GAP_US;

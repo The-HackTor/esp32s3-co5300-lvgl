@@ -28,8 +28,7 @@ static void submenu_cb(void *context, uint32_t index)
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_History);
         break;
     case IDX_AC:
-        app->ac_brand = &ac_brand_samsung;
-        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Ac);
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_AcBrand);
         break;
     }
 }
@@ -49,7 +48,7 @@ void ir_scene_start_on_enter(void *ctx)
                           COLOR_CYAN, IDX_SAVED, submenu_cb, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_LIST, "History",
                           COLOR_GREEN, IDX_HISTORY, submenu_cb, app);
-    view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, "Samsung AC",
+    view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, "AC Remote",
                           COLOR_CYAN, IDX_AC, submenu_cb, app);
 
     view_submenu_set_selected_item(app->submenu,
