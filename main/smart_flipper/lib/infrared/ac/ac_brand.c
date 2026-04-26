@@ -32,6 +32,10 @@ const AcBrand *const ac_brand_table[] = {
     &ac_brand_kelvinator,
     &ac_brand_trotec,
     &ac_brand_sanyo,
+    &ac_brand_midea,
+    &ac_brand_haier,
+    &ac_brand_argo,
+    &ac_brand_tcl,
 };
 const size_t ac_brand_count = sizeof(ac_brand_table) / sizeof(ac_brand_table[0]);
 

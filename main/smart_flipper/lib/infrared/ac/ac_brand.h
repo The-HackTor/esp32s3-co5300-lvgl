@@ -61,6 +61,10 @@ extern const AcBrand ac_brand_whirlpool;
 extern const AcBrand ac_brand_kelvinator;
 extern const AcBrand ac_brand_trotec;
 extern const AcBrand ac_brand_sanyo;
+extern const AcBrand ac_brand_midea;
+extern const AcBrand ac_brand_haier;
+extern const AcBrand ac_brand_argo;
+extern const AcBrand ac_brand_tcl;
 
 extern const AcBrand *const ac_brand_table[];
 extern const size_t        ac_brand_count;
