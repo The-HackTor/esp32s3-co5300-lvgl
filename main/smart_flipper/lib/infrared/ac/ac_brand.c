@@ -25,6 +25,9 @@ const AcBrand *const ac_brand_table[] = {
     &ac_brand_gree,
     &ac_brand_coolix,
     &ac_brand_panasonic,
+    &ac_brand_toshiba,
+    &ac_brand_sharp,
+    &ac_brand_hitachi,
 };
 const size_t ac_brand_count = sizeof(ac_brand_table) / sizeof(ac_brand_table[0]);
 
