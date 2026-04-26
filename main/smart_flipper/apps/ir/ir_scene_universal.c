@@ -2,11 +2,15 @@
 #include "ir_scenes.h"
 #include "ui/styles.h"
 #include "ui/transition.h"
+#include "esp_log.h"
+
+#define TAG "ir_universal"
 
 static void category_selected(void *ctx, uint32_t index)
 {
     IrApp *app = ctx;
     if(index >= IR_UNIVERSAL_CAT_COUNT) return;
+    ESP_LOGI(TAG, "category=%lu", (unsigned long)index);
     app->universal_category = (int)index;
     scene_manager_set_scene_state(&app->scene_mgr, ir_SCENE_Universal, index);
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_UniversalCategory);
@@ -15,6 +19,7 @@ static void category_selected(void *ctx, uint32_t index)
 void ir_scene_universal_on_enter(void *ctx)
 {
     IrApp *app = ctx;
+    ESP_LOGI(TAG, "on_enter");
 
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, "Universal Remotes", COLOR_ORANGE);

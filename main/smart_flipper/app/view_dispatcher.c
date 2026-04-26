@@ -103,7 +103,7 @@ void view_dispatcher_switch_to_view_animated(ViewDispatcher *vd, uint32_t view_i
     lv_obj_t *outgoing = NULL;
     lv_obj_t *incoming = NULL;
 
-    if(vd->current_view_id != VIEW_NONE) {
+    if(vd->current_view_id != VIEW_NONE && vd->current_view_id != view_id) {
         ViewEntry *cur = find_entry(vd, vd->current_view_id);
         if(cur) outgoing = view_module_get_view(&cur->module);
     }
@@ -112,7 +112,13 @@ void view_dispatcher_switch_to_view_animated(ViewDispatcher *vd, uint32_t view_i
     if(next) {
         incoming = view_module_get_view(&next->module);
         lv_obj_remove_flag(incoming, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_x(incoming, 0);
+        lv_obj_set_style_opa(incoming, LV_OPA_COVER, 0);
         vd->current_view_id = view_id;
+    }
+
+    if(outgoing == incoming) {
+        return;
     }
 
     transition_apply(outgoing, incoming, (TransitionType)transition_type, duration_ms);

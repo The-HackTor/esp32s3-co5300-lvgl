@@ -329,6 +329,7 @@ void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
             return;
         }
         s_rx_chan_enabled = true;
+        ESP_LOGI(TAG, "rmt_enable RX OK");
     }
 
     xQueueReset(s_rx_evt_queue);
@@ -357,7 +358,11 @@ void hw_ir_rx_stop(void)
     }
 
     if(s_rx_chan && s_rx_chan_enabled) {
-        rmt_disable(s_rx_chan);
+        esp_err_t err = rmt_disable(s_rx_chan);
+        if(err != ESP_OK) {
+            ESP_LOGW(TAG, "rmt_disable: %s", esp_err_to_name(err));
+        }
         s_rx_chan_enabled = false;
     }
+    ESP_LOGI(TAG, "RX stop");
 }

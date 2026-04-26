@@ -7,10 +7,13 @@
 #include "lib/infrared/ir_codecs.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
+#include "esp_log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define TAG "ir_univ_cat"
 
 static void send_universal(IrApp *app, size_t button_idx, size_t signal_idx)
 {
@@ -77,6 +80,7 @@ void ir_scene_universal_category_on_enter(void *ctx)
     IrApp *app = ctx;
     IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
     size_t total_buttons = ir_universal_db_button_count(cat);
+    ESP_LOGI(TAG, "on_enter cat=%d buttons=%u", (int)cat, (unsigned)total_buttons);
 
     char header[40];
     snprintf(header, sizeof(header), "%s", ir_universal_category_label(cat));

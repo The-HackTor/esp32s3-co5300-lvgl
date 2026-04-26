@@ -10,9 +10,12 @@
 #include "lib/infrared/universal_db/ir_universal_index.h"
 
 #include "esp_timer.h"
+#include "esp_log.h"
 
 #include <stdio.h>
 #include <string.h>
+
+#define TAG "ir_app"
 
 #define RX_DRAIN_INTERVAL_MS 30
 #define RX_QUEUE_DEPTH 2
@@ -149,6 +152,7 @@ static void rx_drain_timer_cb(lv_timer_t *t)
 
 static void on_init(void)
 {
+    ESP_LOGI(TAG, "on_init");
     memset(&app, 0, sizeof(app));
 
     app.screen = lv_obj_create(NULL);
@@ -183,6 +187,7 @@ static void on_init(void)
 
 static void on_enter(void)
 {
+    ESP_LOGI(TAG, "on_enter");
     app.is_learning_new_remote = false;
     app.pending_valid = false;
     app.last_decoded_valid = false;
@@ -213,6 +218,7 @@ static void on_enter(void)
 
 static void on_leave(void)
 {
+    ESP_LOGI(TAG, "on_leave");
     scene_manager_stop(&app.scene_mgr);
 
     if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
