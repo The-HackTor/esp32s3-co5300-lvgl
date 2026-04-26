@@ -11,8 +11,8 @@
 
 static const char *TAG = "hw_ir";
 
-#define IR_TX_GPIO          5
-#define IR_RX_GPIO          3
+#define IR_TX_GPIO          16
+#define IR_RX_GPIO          17
 #define IR_RMT_RESOLUTION   1000000U   /* 1 us per tick -- timings are direct microseconds */
 #define IR_TX_MEM_SYMBOLS   64
 #define IR_RX_MEM_SYMBOLS   128        /* non-DMA on S3 supports up to a few hundred */

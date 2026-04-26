@@ -8,10 +8,10 @@
 /*
  * IR HAL for ESP32-S3 + IR transceiver expansion (J1/J2 header).
  *
- * Hardware (locked from schematic):
- *   IR_TX = GPIO5 (DMN2058UW NMOS driving 3x VSMY14940 IR LEDs in parallel).
- *           Software-modulated 38 kHz carrier via RMT TX hardware carrier.
- *   IR_RX = GPIO3 (TSOP14438 demodulated envelope, active-low, 10k pullup).
+ * Hardware (locked from schematic, J2 IR header):
+ *   IR_TX = GPIO16 (DMN2058UW NMOS driving 3x VSMY14940 IR LEDs in parallel).
+ *           Hardware-modulated 38 kHz carrier via RMT TX.
+ *   IR_RX = GPIO17 (TSOP14438 demodulated envelope, active-low, 10k pullup).
  *           38 kHz only -- 40 kHz SIRC and 36 kHz RC5 will TX correctly but
  *           won't RX reliably.
  *
