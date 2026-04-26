@@ -16,6 +16,7 @@
 #include "ui/modules/view_custom.h"
 #include "ui/modules/view_text_input.h"
 #include "store/ir_store.h"
+#include "store/macro_store.h"
 #include "lib/infrared/ir_codecs.h"
 #include "lib/infrared/ac/ac_brand.h"
 
@@ -82,6 +83,14 @@ typedef struct {
 
     AcState         ac_state;
     const AcBrand  *ac_brand;
+
+    IrMacro         current_macro;
+    int             selected_step_idx;
+    IrMacroStep     pending_step;
+    char            macro_name_buf[IR_MACRO_NAME_MAX];
+    QueueHandle_t   macro_evt_queue;
+    lv_timer_t     *macro_drain_timer;
+    void           *macro_runner;
 } IrApp;
 
 void   ir_app_register(void);

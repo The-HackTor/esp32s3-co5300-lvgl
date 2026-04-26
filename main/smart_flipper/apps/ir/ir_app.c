@@ -176,6 +176,7 @@ static void on_init(void)
 
     app.rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(IrRxFrame *));
     ir_store_init();
+    macro_store_init();
     ir_universal_db_init();
     ir_universal_index_init();
 }
@@ -234,6 +235,7 @@ static void on_leave(void)
         app.pending_raw_n = 0;
     }
     ir_remote_free(&app.current_remote);
+    macro_free(&app.current_macro);
 
     view_submenu_reset(app.submenu);
     view_action_reset(app.action);

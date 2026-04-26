@@ -4,7 +4,7 @@
 #include "ui/styles.h"
 #include "ui/transition.h"
 
-enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED, IDX_HISTORY, IDX_AC };
+enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED, IDX_HISTORY, IDX_MACROS, IDX_AC };
 
 static void submenu_cb(void *context, uint32_t index)
 {
@@ -27,6 +27,9 @@ static void submenu_cb(void *context, uint32_t index)
     case IDX_HISTORY:
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_History);
         break;
+    case IDX_MACROS:
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_MacroList);
+        break;
     case IDX_AC:
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_AcBrand);
         break;
@@ -48,6 +51,8 @@ void ir_scene_start_on_enter(void *ctx)
                           COLOR_CYAN, IDX_SAVED, submenu_cb, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_LIST, "History",
                           COLOR_GREEN, IDX_HISTORY, submenu_cb, app);
+    view_submenu_add_item(app->submenu, LV_SYMBOL_SHUFFLE, "Macros",
+                          COLOR_YELLOW, IDX_MACROS, submenu_cb, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, "AC Remote",
                           COLOR_CYAN, IDX_AC, submenu_cb, app);
 
