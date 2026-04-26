@@ -3,6 +3,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_rx.h"
 #include "esp_attr.h"
@@ -47,6 +48,8 @@ static TaskHandle_t          s_rx_task;
 static hw_ir_rx_cb_t         s_rx_user_cb;
 static void                 *s_rx_user_ctx;
 static bool                  s_rx_running;
+static bool                  s_rx_chan_enabled;
+static SemaphoreHandle_t     s_rx_done_sem;
 
 typedef struct {
     rmt_symbol_word_t *symbols;
@@ -244,24 +247,25 @@ static void rx_task(void *arg)
         .signal_range_max_ns = IR_RX_MAX_NS,
     };
 
-    /* Buffer for caller-visible timing list, populated per frame. */
     static uint16_t timings[IR_RX_MAX_SYMBOLS * 2];
 
-    /* Prime the channel. */
-    ESP_ERROR_CHECK(rmt_receive(s_rx_chan, s_rx_buf,
+    esp_err_t err = rmt_receive(s_rx_chan, s_rx_buf,
                                 IR_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t),
-                                &rcv_cfg));
+                                &rcv_cfg);
+    if(err != ESP_OK) {
+        ESP_LOGE(TAG, "rmt_receive prime: %s", esp_err_to_name(err));
+        s_rx_task = NULL;
+        if(s_rx_done_sem) xSemaphoreGive(s_rx_done_sem);
+        vTaskDelete(NULL);
+    }
 
     while(s_rx_running) {
         rx_evt_t evt;
         if(xQueueReceive(s_rx_evt_queue, &evt, portMAX_DELAY) != pdTRUE) {
             continue;
         }
+        if(!s_rx_running) break;
 
-        /* Convert symbols (mark/space pairs) to a flat timing list. The
-         * TSOP idles HIGH and pulls LOW for marks; we don't filter on
-         * level here -- the alternating pattern is what callers care
-         * about. Stop at the first 0-duration phase (RMT terminator). */
         size_t out_n = 0;
         for(size_t i = 0; i < evt.count && out_n + 1 < sizeof(timings)/sizeof(timings[0]); i++) {
             if(evt.symbols[i].duration0 == 0) break;
@@ -274,13 +278,19 @@ static void rx_task(void *arg)
             s_rx_user_cb(timings, out_n, s_rx_user_ctx);
         }
 
-        /* Re-arm. rmt_receive must be called again after each completion. */
-        rmt_receive(s_rx_chan, s_rx_buf,
-                    IR_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t),
-                    &rcv_cfg);
+        if(s_rx_running) {
+            err = rmt_receive(s_rx_chan, s_rx_buf,
+                              IR_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t),
+                              &rcv_cfg);
+            if(err != ESP_OK) {
+                ESP_LOGE(TAG, "rmt_receive re-arm: %s", esp_err_to_name(err));
+                break;
+            }
+        }
     }
 
     s_rx_task = NULL;
+    if(s_rx_done_sem) xSemaphoreGive(s_rx_done_sem);
     vTaskDelete(NULL);
 }
 
@@ -308,8 +318,20 @@ void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
         s_rx_evt_queue = xQueueCreate(8, sizeof(rx_evt_t));
         assert(s_rx_evt_queue);
 
-        ESP_ERROR_CHECK(rmt_enable(s_rx_chan));
+        s_rx_done_sem = xSemaphoreCreateBinary();
+        assert(s_rx_done_sem);
     }
+
+    if(!s_rx_chan_enabled) {
+        esp_err_t err = rmt_enable(s_rx_chan);
+        if(err != ESP_OK) {
+            ESP_LOGE(TAG, "rmt_enable: %s", esp_err_to_name(err));
+            return;
+        }
+        s_rx_chan_enabled = true;
+    }
+
+    xQueueReset(s_rx_evt_queue);
 
     s_rx_user_cb  = cb;
     s_rx_user_ctx = ctx;
@@ -325,9 +347,17 @@ void hw_ir_rx_stop(void)
 {
     if(!s_rx_running) return;
     s_rx_running = false;
-    /* The task is blocked on the queue; push a sentinel to wake it. */
     rx_evt_t sentinel = { .symbols = NULL, .count = 0 };
     xQueueSend(s_rx_evt_queue, &sentinel, 0);
     s_rx_user_cb  = NULL;
     s_rx_user_ctx = NULL;
+
+    if(s_rx_done_sem) {
+        xSemaphoreTake(s_rx_done_sem, pdMS_TO_TICKS(500));
+    }
+
+    if(s_rx_chan && s_rx_chan_enabled) {
+        rmt_disable(s_rx_chan);
+        s_rx_chan_enabled = false;
+    }
 }
