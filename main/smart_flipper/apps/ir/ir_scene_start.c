@@ -4,7 +4,7 @@
 #include "ui/styles.h"
 #include "ui/transition.h"
 
-enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED, IDX_HISTORY };
+enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED, IDX_HISTORY, IDX_AC };
 
 static void submenu_cb(void *context, uint32_t index)
 {
@@ -27,6 +27,10 @@ static void submenu_cb(void *context, uint32_t index)
     case IDX_HISTORY:
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_History);
         break;
+    case IDX_AC:
+        app->ac_brand = &ac_brand_samsung;
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Ac);
+        break;
     }
 }
 
@@ -45,6 +49,8 @@ void ir_scene_start_on_enter(void *ctx)
                           COLOR_CYAN, IDX_SAVED, submenu_cb, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_LIST, "History",
                           COLOR_GREEN, IDX_HISTORY, submenu_cb, app);
+    view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, "Samsung AC",
+                          COLOR_CYAN, IDX_AC, submenu_cb, app);
 
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_Start));

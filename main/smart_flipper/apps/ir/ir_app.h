@@ -17,6 +17,7 @@
 #include "ui/modules/view_text_input.h"
 #include "store/ir_store.h"
 #include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/ac/ac_brand.h"
 
 #define IR_RX_TIMINGS_MAX  2048
 
@@ -78,6 +79,9 @@ typedef struct {
     size_t          preview_n;
     uint32_t        preview_seq;
     lv_timer_t     *learn_redraw_timer;
+
+    AcState         ac_state;
+    const AcBrand  *ac_brand;
 } IrApp;
 
 void   ir_app_register(void);
