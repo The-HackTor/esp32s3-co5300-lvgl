@@ -65,6 +65,11 @@ extern const AcBrand ac_brand_midea;
 extern const AcBrand ac_brand_haier;
 extern const AcBrand ac_brand_argo;
 extern const AcBrand ac_brand_tcl;
+extern const AcBrand ac_brand_carrier64;
+extern const AcBrand ac_brand_hisense;
+extern const AcBrand ac_brand_goodweather;
+extern const AcBrand ac_brand_electra;
+extern const AcBrand ac_brand_delonghi;
 
 extern const AcBrand *const ac_brand_table[];
 extern const size_t        ac_brand_count;

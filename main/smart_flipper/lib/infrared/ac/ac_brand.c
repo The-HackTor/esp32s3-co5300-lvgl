@@ -36,6 +36,11 @@ const AcBrand *const ac_brand_table[] = {
     &ac_brand_haier,
     &ac_brand_argo,
     &ac_brand_tcl,
+    &ac_brand_carrier64,
+    &ac_brand_hisense,
+    &ac_brand_goodweather,
+    &ac_brand_electra,
+    &ac_brand_delonghi,
 };
 const size_t ac_brand_count = sizeof(ac_brand_table) / sizeof(ac_brand_table[0]);
 
