@@ -19,7 +19,6 @@
 #include "smart_flipper/smart_flipper.h"
 #include "smart_flipper/hw/hw_rgb.h"
 #include "smart_flipper/hw/hw_ir.h"
-#include "smart_flipper/hw/hw_selftest.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -322,11 +321,6 @@ void app_main(void)
 
     /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
     example_mount_sdcard();
-
-    /* TEMP: GPIO discovery probe -- run BEFORE hw_ir_init so it can grab
-     * candidate pins via LEDC without contending with RMT. Remove this
-     * line + the hw_selftest.h include when IR_TX is identified. */
-    hw_selftest_run();
 
     hw_ir_init();
 
