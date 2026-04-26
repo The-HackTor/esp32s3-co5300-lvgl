@@ -9,6 +9,8 @@
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/universal_db/ir_universal_index.h"
 
+#include "esp_timer.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -86,6 +88,14 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         app.last_decoded = dec;
         app.last_decoded_valid = true;
         memset(&app.pending_button, 0, sizeof(app.pending_button));
+
+        IrHistoryEntry hist = {
+            .timestamp_us = esp_timer_get_time(),
+            .address      = dec.address,
+            .command      = dec.command,
+        };
+        snprintf(hist.protocol, sizeof(hist.protocol), "%s", dec.protocol);
+        ir_history_append(&hist);
 
         if(dec.source == IR_DECODED_FLIPPER) {
             app.pending_button.signal.type = INFRARED_SIGNAL_PARSED;

@@ -74,6 +74,21 @@ esp_err_t ir_store_remote_path(char *out, size_t out_len, const char *name);
 esp_err_t ir_store_list_remotes(char (*out_names)[IR_REMOTE_NAME_MAX],
                                 size_t cap, size_t *out_count);
 
+#define IR_HISTORY_PATH        "/sdcard/ir/history.log"
+#define IR_HISTORY_MAX_ENTRIES 64
+
+typedef struct {
+    int64_t  timestamp_us;
+    char     protocol[IR_PROTOCOL_NAME_MAX];
+    uint32_t address;
+    uint32_t command;
+} IrHistoryEntry;
+
+esp_err_t ir_history_append(const IrHistoryEntry *e);
+esp_err_t ir_history_read(IrHistoryEntry *out, size_t cap, size_t *out_count);
+esp_err_t ir_history_delete(size_t idx);
+esp_err_t ir_history_clear(void);
+
 esp_err_t ir_remote_init(IrRemote *r, const char *name);
 esp_err_t ir_remote_load(IrRemote *out, const char *path);
 esp_err_t ir_remote_load_blob(IrRemote *out, const char *name,

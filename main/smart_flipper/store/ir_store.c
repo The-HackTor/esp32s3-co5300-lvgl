@@ -506,3 +506,132 @@ esp_err_t ir_store_list_remotes(char (*out_names)[IR_REMOTE_NAME_MAX],
     closedir(dir);
     return ESP_OK;
 }
+
+static esp_err_t trim_history(void)
+{
+    FILE *fp = fopen(IR_HISTORY_PATH, "r");
+    if(!fp) return ESP_OK;
+    size_t n = 0;
+    char line[256];
+    while(fgets(line, sizeof(line), fp)) n++;
+    fclose(fp);
+    if(n <= IR_HISTORY_MAX_ENTRIES) return ESP_OK;
+
+    size_t skip = n - IR_HISTORY_MAX_ENTRIES;
+    fp = fopen(IR_HISTORY_PATH, "r");
+    if(!fp) return ESP_FAIL;
+
+    const char *tmp_path = IR_HISTORY_PATH ".tmp";
+    FILE *out = fopen(tmp_path, "w");
+    if(!out) { fclose(fp); return ESP_FAIL; }
+
+    size_t i = 0;
+    while(fgets(line, sizeof(line), fp)) {
+        if(i++ < skip) continue;
+        fputs(line, out);
+    }
+    fclose(fp);
+    fclose(out);
+    if(rename(tmp_path, IR_HISTORY_PATH) != 0) {
+        unlink(tmp_path);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+esp_err_t ir_history_append(const IrHistoryEntry *e)
+{
+    if(!e) return ESP_ERR_INVALID_ARG;
+    FILE *fp = fopen(IR_HISTORY_PATH, "a");
+    if(!fp) return ESP_FAIL;
+    fprintf(fp, "%lld %s %08lX %08lX\n",
+            (long long)e->timestamp_us, e->protocol,
+            (unsigned long)e->address, (unsigned long)e->command);
+    fclose(fp);
+    trim_history();
+    return ESP_OK;
+}
+
+static bool parse_history_line(const char *line, IrHistoryEntry *out)
+{
+    long long ts;
+    char proto[IR_PROTOCOL_NAME_MAX];
+    unsigned long addr, cmd;
+    int n = sscanf(line, "%lld %23s %lx %lx", &ts, proto, &addr, &cmd);
+    if(n != 4) return false;
+    out->timestamp_us = (int64_t)ts;
+    snprintf(out->protocol, sizeof(out->protocol), "%s", proto);
+    out->address = (uint32_t)addr;
+    out->command = (uint32_t)cmd;
+    return true;
+}
+
+esp_err_t ir_history_read(IrHistoryEntry *out, size_t cap, size_t *out_count)
+{
+    if(!out || !out_count) return ESP_ERR_INVALID_ARG;
+    *out_count = 0;
+    FILE *fp = fopen(IR_HISTORY_PATH, "r");
+    if(!fp) return ESP_OK;
+
+    IrHistoryEntry *all = malloc(IR_HISTORY_MAX_ENTRIES * sizeof(IrHistoryEntry));
+    if(!all) { fclose(fp); return ESP_ERR_NO_MEM; }
+
+    size_t n = 0;
+    char line[256];
+    while(fgets(line, sizeof(line), fp) && n < IR_HISTORY_MAX_ENTRIES) {
+        if(parse_history_line(line, &all[n])) n++;
+    }
+    fclose(fp);
+
+    /* Reverse copy: newest first. */
+    size_t to_copy = n < cap ? n : cap;
+    for(size_t i = 0; i < to_copy; i++) {
+        out[i] = all[n - 1 - i];
+    }
+    *out_count = to_copy;
+    free(all);
+    return ESP_OK;
+}
+
+esp_err_t ir_history_delete(size_t idx)
+{
+    FILE *fp = fopen(IR_HISTORY_PATH, "r");
+    if(!fp) return ESP_ERR_NOT_FOUND;
+
+    IrHistoryEntry *all = malloc(IR_HISTORY_MAX_ENTRIES * sizeof(IrHistoryEntry));
+    if(!all) { fclose(fp); return ESP_ERR_NO_MEM; }
+
+    size_t n = 0;
+    char line[256];
+    while(fgets(line, sizeof(line), fp) && n < IR_HISTORY_MAX_ENTRIES) {
+        if(parse_history_line(line, &all[n])) n++;
+    }
+    fclose(fp);
+
+    /* idx is in newest-first order; convert to file order. */
+    if(idx >= n) { free(all); return ESP_ERR_INVALID_ARG; }
+    size_t file_idx = n - 1 - idx;
+
+    FILE *out = fopen(IR_HISTORY_PATH ".tmp", "w");
+    if(!out) { free(all); return ESP_FAIL; }
+    for(size_t i = 0; i < n; i++) {
+        if(i == file_idx) continue;
+        fprintf(out, "%lld %s %08lX %08lX\n",
+                (long long)all[i].timestamp_us, all[i].protocol,
+                (unsigned long)all[i].address, (unsigned long)all[i].command);
+    }
+    fclose(out);
+    free(all);
+
+    if(rename(IR_HISTORY_PATH ".tmp", IR_HISTORY_PATH) != 0) {
+        unlink(IR_HISTORY_PATH ".tmp");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+esp_err_t ir_history_clear(void)
+{
+    if(unlink(IR_HISTORY_PATH) != 0) return ESP_FAIL;
+    return ESP_OK;
+}
