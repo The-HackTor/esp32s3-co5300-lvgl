@@ -54,6 +54,7 @@ typedef struct {
     bool            is_learning_new_remote;
     char            name_buffer[IR_REMOTE_NAME_MAX];
     int             selected_button_idx;
+    int             edit_op;
     int             universal_category;
     /* Tracks the next signal index to fire for each button in the current
      * universal category. Reset on category change. Walks 0..M-1 and wraps. */

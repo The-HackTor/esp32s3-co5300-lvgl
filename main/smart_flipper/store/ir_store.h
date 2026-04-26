@@ -82,6 +82,9 @@ esp_err_t ir_remote_save(const IrRemote *in);
 esp_err_t ir_remote_append_button(IrRemote *r, const IrButton *btn);
 esp_err_t ir_remote_delete_button(IrRemote *r, size_t idx);
 esp_err_t ir_remote_rename_button(IrRemote *r, size_t idx, const char *new_name);
+esp_err_t ir_remote_move_button(IrRemote *r, size_t from, size_t to);
+esp_err_t ir_remote_rename(IrRemote *r, const char *new_name);
+esp_err_t ir_remote_delete_file(const IrRemote *r);
 void      ir_remote_free(IrRemote *r);
 
 void      ir_button_free(IrButton *btn);

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_log.h"
 
@@ -163,9 +164,57 @@ esp_err_t ir_remote_delete_button(IrRemote *r, size_t idx)
 esp_err_t ir_remote_rename_button(IrRemote *r, size_t idx, const char *new_name)
 {
     if(!r || !new_name || idx >= r->button_count) return ESP_ERR_INVALID_ARG;
-    strncpy(r->buttons[idx].name, new_name, sizeof(r->buttons[idx].name) - 1);
-    r->buttons[idx].name[sizeof(r->buttons[idx].name) - 1] = '\0';
+    snprintf(r->buttons[idx].name, sizeof(r->buttons[idx].name), "%s", new_name);
     r->dirty = true;
+    return ESP_OK;
+}
+
+esp_err_t ir_remote_move_button(IrRemote *r, size_t from, size_t to)
+{
+    if(!r || from >= r->button_count || to >= r->button_count) return ESP_ERR_INVALID_ARG;
+    if(from == to) return ESP_OK;
+    IrButton tmp = r->buttons[from];
+    if(from < to) {
+        memmove(&r->buttons[from], &r->buttons[from + 1],
+                (to - from) * sizeof(IrButton));
+    } else {
+        memmove(&r->buttons[to + 1], &r->buttons[to],
+                (from - to) * sizeof(IrButton));
+    }
+    r->buttons[to] = tmp;
+    r->dirty = true;
+    return ESP_OK;
+}
+
+esp_err_t ir_remote_rename(IrRemote *r, const char *new_name)
+{
+    if(!r || !new_name || new_name[0] == '\0') return ESP_ERR_INVALID_ARG;
+    if(strcmp(r->name, new_name) == 0) return ESP_OK;
+
+    char new_path[IR_REMOTE_PATH_MAX];
+    esp_err_t err = ir_store_remote_path(new_path, sizeof(new_path), new_name);
+    if(err != ESP_OK) return err;
+
+    char old_path[IR_REMOTE_PATH_MAX];
+    snprintf(old_path, sizeof(old_path), "%s", r->path);
+
+    snprintf(r->name, sizeof(r->name), "%s", new_name);
+    snprintf(r->path, sizeof(r->path), "%s", new_path);
+
+    err = ir_remote_save(r);
+    if(err != ESP_OK) return err;
+
+    if(old_path[0] && strcmp(old_path, new_path) != 0) {
+        unlink(old_path);
+    }
+    r->dirty = false;
+    return ESP_OK;
+}
+
+esp_err_t ir_remote_delete_file(const IrRemote *r)
+{
+    if(!r || r->path[0] == '\0') return ESP_ERR_INVALID_ARG;
+    if(unlink(r->path) != 0) return ESP_FAIL;
     return ESP_OK;
 }
 

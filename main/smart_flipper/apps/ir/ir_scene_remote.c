@@ -11,7 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define ADD_BUTTON_INDEX 0xFFFFFFFEu
+#define ADD_BUTTON_INDEX  0xFFFFFFFEu
+#define EDIT_BUTTON_INDEX 0xFFFFFFFDu
 
 static void button_tapped(void *ctx, uint32_t index)
 {
@@ -24,6 +25,11 @@ static void button_tapped(void *ctx, uint32_t index)
         }
         app->is_learning_new_remote = false;
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Learn);
+        return;
+    }
+
+    if(index == EDIT_BUTTON_INDEX) {
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Edit);
         return;
     }
 
@@ -84,6 +90,8 @@ void ir_scene_remote_on_enter(void *ctx)
 
     view_submenu_add_item(app->submenu, LV_SYMBOL_PLUS, "Learn Another",
                           COLOR_BLUE, ADD_BUTTON_INDEX, button_tapped, app);
+    view_submenu_add_item(app->submenu, LV_SYMBOL_SETTINGS, "Edit",
+                          COLOR_YELLOW, EDIT_BUTTON_INDEX, button_tapped, app);
 
     view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewSubmenu,
                                             (uint32_t)TransitionSlideLeft, 180);

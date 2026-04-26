@@ -25,7 +25,18 @@ enum {
     IR_EVT_RX_RAW,
     IR_EVT_NAME_ACCEPTED,
     IR_EVT_DISCARD_CONFIRMED,
+    IR_EVT_EDIT_NAME_ACCEPTED,
+    IR_EVT_EDIT_DELETE_CONFIRMED,
 };
+
+typedef enum {
+    IR_EDIT_OP_NONE = 0,
+    IR_EDIT_OP_RENAME_REMOTE,
+    IR_EDIT_OP_RENAME_BUTTON,
+    IR_EDIT_OP_DELETE_BUTTON,
+    IR_EDIT_OP_MOVE_BUTTON,
+    IR_EDIT_OP_DELETE_REMOTE,
+} IrEditOp;
 
 extern const SceneManagerHandlers ir_scene_handlers;
 
