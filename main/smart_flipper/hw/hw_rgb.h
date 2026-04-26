@@ -6,11 +6,10 @@
 /*
  * RGB activity LED driver.
  *
- * Pin map (locked from board schematic):
- *   RED   = GPIO17
- *   GREEN = GPIO7
- *   BLUE  = GPIO0   (BOOT0 strapping pin -- safe because external wiring is
- *                    anode-to-VCC and nothing drives the pin LOW during reset)
+ * Pin map (locked from board schematic, LED_RGB header IO01/IO02/IO03):
+ *   RED   = GPIO3   (carrier IO03; strapping pin, idles HIGH with output_invert)
+ *   GREEN = GPIO2   (carrier IO02)
+ *   BLUE  = GPIO1   (carrier IO01)
  *
  * LEDs are common-anode with R7=R8=R9=0R (no current-limit resistors), so
  * direct GPIO drive would source ~30-40 mA continuously. All channels run

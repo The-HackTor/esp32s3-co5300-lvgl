@@ -6,9 +6,9 @@
 
 static const char *TAG = "hw_rgb";
 
-#define RGB_GPIO_R       17
-#define RGB_GPIO_G       7
-#define RGB_GPIO_B       0
+#define RGB_GPIO_R       3
+#define RGB_GPIO_G       2
+#define RGB_GPIO_B       1
 
 #define RGB_LEDC_MODE    LEDC_LOW_SPEED_MODE
 #define RGB_LEDC_TIMER   LEDC_TIMER_0
