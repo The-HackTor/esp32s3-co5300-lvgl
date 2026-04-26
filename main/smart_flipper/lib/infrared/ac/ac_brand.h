@@ -50,6 +50,8 @@ uint8_t ac_sum_bytes(const uint8_t *data, size_t n);
 extern const AcBrand ac_brand_samsung;
 extern const AcBrand ac_brand_daikin;
 extern const AcBrand ac_brand_mitsubishi;
+extern const AcBrand ac_brand_lg;
+extern const AcBrand ac_brand_gree;
 
 extern const AcBrand *const ac_brand_table[];
 extern const size_t        ac_brand_count;
