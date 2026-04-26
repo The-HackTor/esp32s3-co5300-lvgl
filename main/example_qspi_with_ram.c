@@ -323,11 +323,12 @@ void app_main(void)
     /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
     example_mount_sdcard();
 
-    hw_ir_init();
-
-    /* TEMP: aggressive 60s HW self-test (RGB + IR TX). Remove this single
-     * line + the hw_selftest.h include when the bench is verified. */
+    /* TEMP: GPIO discovery probe -- run BEFORE hw_ir_init so it can grab
+     * candidate pins via LEDC without contending with RMT. Remove this
+     * line + the hw_selftest.h include when IR_TX is identified. */
     hw_selftest_run();
+
+    hw_ir_init();
 
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
