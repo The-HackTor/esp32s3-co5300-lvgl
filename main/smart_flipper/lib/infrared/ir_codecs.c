@@ -118,10 +118,15 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     uint16_t *buf = malloc(cap * sizeof(uint16_t));
     if(!buf) { infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
 
-    /* Flipper's encoder emits a leading SPACE (silence_time, level=false)
-     * before the first MARK. hw_ir_send_raw expects buf[0]=mark, so drop
-     * timings until we see the first level=true sample. */
+    /* Flipper's encoder emits (level, duration) samples. PDWM protocols
+     * (NEC, Samsung, SIRC, etc.) alternate level cleanly so index parity
+     * matches; Manchester (RC5, RC6) emits consecutive same-level samples
+     * between bits with the same logical value, which must be merged into
+     * one duration so hw_ir_send_raw's mark/space index-parity contract
+     * holds. Also drop the leading silence sample so buf[0] is the real
+     * preamble mark. */
     bool started = false;
+    bool expected_level = true;
     for(;;) {
         uint32_t duration = 0;
         bool     level    = false;
@@ -138,16 +143,29 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
             }
             started = true;
         }
-        if(n == cap) {
-            size_t new_cap = cap * 2;
-            uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
-            if(!r) { free(buf); infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
-            buf = r;
-            cap = new_cap;
+        if(duration > 32767) duration = 32767;
+        if(level == expected_level) {
+            if(n == cap) {
+                size_t new_cap = cap * 2;
+                uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
+                if(!r) { free(buf); infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
+                buf = r;
+                cap = new_cap;
+            }
+            buf[n++] = (uint16_t)duration;
+            expected_level = !expected_level;
+        } else if(n > 0) {
+            uint32_t merged = (uint32_t)buf[n - 1] + duration;
+            if(merged > 32767) merged = 32767;
+            buf[n - 1] = (uint16_t)merged;
         }
-        if(duration > UINT16_MAX) duration = UINT16_MAX;
-        buf[n++] = (uint16_t)duration;
         if(s == InfraredStatusDone) break;
+    }
+
+    if(n == 0) {
+        free(buf);
+        infrared_free_encoder(handler);
+        return ESP_FAIL;
     }
 
     *out_timings = buf;

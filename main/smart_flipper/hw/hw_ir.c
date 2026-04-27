@@ -41,6 +41,7 @@ static rmt_encoder_handle_t  s_copy_encoder;
 static uint32_t              s_carrier_hz_active;
 static bool                  s_inited;
 static int64_t               s_last_tx_done_us;
+static SemaphoreHandle_t     s_tx_mtx;
 
 /* RX state */
 static rmt_channel_handle_t  s_rx_chan;
@@ -109,6 +110,9 @@ void hw_ir_init(void)
     ESP_ERROR_CHECK(apply_carrier(38000));
     ESP_ERROR_CHECK(rmt_enable(s_tx_chan));
 
+    s_tx_mtx = xSemaphoreCreateMutex();
+    assert(s_tx_mtx);
+
     s_inited = true;
     ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, default carrier=38 kHz",
              IR_TX_GPIO, (unsigned)IR_RMT_RESOLUTION);
@@ -120,8 +124,13 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
     if(timings == NULL || n_timings == 0) return ESP_ERR_INVALID_ARG;
     if(n_timings > IR_MAX_TIMINGS)      return ESP_ERR_INVALID_SIZE;
 
+    if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, portMAX_DELAY);
+
     esp_err_t err = apply_carrier(carrier_hz ? carrier_hz : 38000);
-    if(err != ESP_OK) return err;
+    if(err != ESP_OK) {
+        if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
+        return err;
+    }
 
     /* Pack pairs of (mark, space) durations into rmt_symbol_word_t. Each
      * symbol holds two phases (level0+duration0, level1+duration1). For an
@@ -133,11 +142,15 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
     for(size_t i = 0; i < n_symbols; i++) {
         const size_t i0 = i * 2;
         const size_t i1 = i0 + 1;
+        uint16_t d0 = timings[i0];
+        if(d0 > 32767) d0 = 32767;           /* RMT duration field is 15 bits */
         symbols[i].level0    = 1;            /* mark = LED on (carrier modulated) */
-        symbols[i].duration0 = timings[i0];
+        symbols[i].duration0 = d0;
         if(i1 < n_timings) {
+            uint16_t d1 = timings[i1];
+            if(d1 > 32767) d1 = 32767;
             symbols[i].level1    = 0;        /* space = LED off */
-            symbols[i].duration1 = timings[i1];
+            symbols[i].duration1 = d1;
         } else {
             symbols[i].level1    = 0;
             symbols[i].duration1 = 0;        /* terminator */
@@ -153,10 +166,12 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
                        n_symbols * sizeof(symbols[0]), &tx_cfg);
     if(err != ESP_OK) {
         ESP_LOGE(TAG, "rmt_transmit: %s", esp_err_to_name(err));
+        if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
         return err;
     }
     err = rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
     s_last_tx_done_us = esp_timer_get_time();
+    if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
     return err;
 }
 
@@ -197,9 +212,19 @@ static void repeat_task_fn(void *arg)
 esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
                                   uint32_t carrier_hz, uint32_t period_ms)
 {
-    if(!s_inited)                       return ESP_ERR_INVALID_STATE;
+    if(!s_inited)                         return ESP_ERR_INVALID_STATE;
     if(timings == NULL || n_timings == 0) return ESP_ERR_INVALID_ARG;
-    if(s_repeat_running)                return ESP_ERR_INVALID_STATE;
+
+    if(!s_repeat_done_sem) s_repeat_done_sem = xSemaphoreCreateBinary();
+
+    /* Defensively drain any prior repeat-task before starting a new one.
+     * Handles the case where a previous _stop timed out or was missed. */
+    if(s_repeat_task != NULL || s_repeat_running) {
+        s_repeat_running = false;
+        xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(2000));
+    }
+    /* Drop any stale give from a prior cycle so our wait isn't skipped. */
+    xSemaphoreTake(s_repeat_done_sem, 0);
 
     repeat_args_t *a = malloc(sizeof(repeat_args_t));
     if(!a) return ESP_ERR_NO_MEM;
@@ -216,8 +241,6 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
         return err;
     }
 
-    if(!s_repeat_done_sem) s_repeat_done_sem = xSemaphoreCreateBinary();
-
     s_repeat_running = true;
     if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, a,
                                tskIDLE_PRIORITY + 3, &s_repeat_task, 1) != pdPASS) {
@@ -230,10 +253,10 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
 
 void hw_ir_send_repeat_stop(void)
 {
-    if(!s_repeat_running) return;
+    if(!s_repeat_running && s_repeat_task == NULL) return;
     s_repeat_running = false;
     if(s_repeat_done_sem) {
-        xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(500));
+        xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(2000));
     }
 }
 
@@ -348,6 +371,9 @@ void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
     }
 
     xQueueReset(s_rx_evt_queue);
+    /* Drop any stale give from a prior cycle (e.g. previous _stop timed out
+     * but rx_task eventually finished and gave the sem afterward). */
+    xSemaphoreTake(s_rx_done_sem, 0);
 
     s_rx_user_cb  = cb;
     s_rx_user_ctx = ctx;
