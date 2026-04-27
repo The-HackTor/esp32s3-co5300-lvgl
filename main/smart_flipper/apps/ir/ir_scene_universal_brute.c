@@ -5,7 +5,7 @@
 #include "ui/transition.h"
 #include "store/ir_store.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
-#include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/brute/ir_brute.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "esp_log.h"
@@ -22,49 +22,22 @@
 #define BRUTE_RUNNER_PRIO    5
 #define BRUTE_RUNNER_CORE    1
 
+static IrBruteContext s_bc;
+
 static void render(IrApp *app);
-
-static bool send_signal(const IrButton *btn)
-{
-    if(!btn) return false;
-    if(btn->signal.type == INFRARED_SIGNAL_RAW) {
-        const InfraredSignalRaw *r = &btn->signal.raw;
-        if(!r->timings || r->n_timings == 0) return false;
-        hw_ir_send_raw(r->timings, r->n_timings,
-                       r->freq_hz ? r->freq_hz : 38000);
-        return true;
-    }
-
-    IrDecoded msg = {0};
-    snprintf(msg.protocol, sizeof(msg.protocol), "%s",
-             btn->signal.parsed.protocol);
-    msg.address = btn->signal.parsed.address;
-    msg.command = btn->signal.parsed.command;
-
-    uint16_t *enc_t  = NULL;
-    size_t    enc_n  = 0;
-    uint32_t  enc_hz = 38000;
-    if(ir_codecs_encode(&msg, &enc_t, &enc_n, &enc_hz) != ESP_OK) return false;
-    if(enc_t && enc_n) hw_ir_send_raw(enc_t, enc_n, enc_hz);
-    free(enc_t);
-    return true;
-}
 
 static bool brute_step(IrRunner *r, void *user_data, size_t step_idx)
 {
     (void)r;
     IrApp *app = user_data;
-    IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
-
-    const IrButton *btn = ir_universal_db_button_signal(cat,
-                                                        (size_t)app->univ_button_idx,
-                                                        step_idx);
-    if(!btn) return false;
-
     hw_rgb_set(255, 0, 0);
-    bool ok = send_signal(btn);
+    esp_err_t err = ir_brute_step_send(&s_bc, step_idx);
     hw_rgb_off();
-    return ok;
+    if(err != ESP_OK) {
+        ESP_LOGW(TAG, "step %u: %s", (unsigned)step_idx, esp_err_to_name(err));
+    }
+    (void)app;
+    return err == ESP_OK;
 }
 
 static void brute_evt(void *user_data, uint8_t kind, uint16_t step_idx)
@@ -107,17 +80,13 @@ static void on_worked(void *ctx)
 
     ir_runner_pause(r);
 
-    IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
-    const IrButton *btn = ir_universal_db_button_signal(cat,
-                                                        (size_t)app->univ_button_idx,
-                                                        app->univ_signal_idx);
-    if(!btn) { render(app); return; }
-
     if(app->univ_save_valid) {
         ir_button_free(&app->univ_save_button);
         app->univ_save_valid = false;
     }
-    if(ir_button_dup(&app->univ_save_button, btn) != ESP_OK) {
+
+    if(ir_brute_step_to_button(&s_bc, app->univ_signal_idx,
+                               &app->univ_save_button) != ESP_OK) {
         render(app);
         return;
     }
@@ -131,37 +100,29 @@ static void render(IrApp *app)
     IrRunner *r = app->univ_runner;
     if(!r) return;
 
-    IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
     size_t total = ir_runner_total(r);
     size_t cur   = ir_runner_current(r);
     bool   done  = ir_runner_finished(r);
     bool   pausd = ir_runner_is_paused(r);
 
-    const char *btn_name = ir_universal_db_button_name(cat,
-                                                       (size_t)app->univ_button_idx);
+    const char *btn_label = ir_universal_db_button_name(s_bc.cat,
+                                                        (size_t)s_bc.button_idx);
 
     view_info_reset(app->info);
     view_info_set_header(app->info,
-                         btn_name ? btn_name : "Brute",
+                         btn_label ? btn_label : "Brute",
                          done ? COLOR_GREEN : (pausd ? COLOR_YELLOW : COLOR_RED));
 
     view_info_add_progress(app->info, done ? COLOR_GREEN : COLOR_RED);
     view_info_set_progress(app->info, cur, total);
 
-    const IrButton *cur_btn = NULL;
-    if(!done && cur > 0 && cur <= total) {
-        cur_btn = ir_universal_db_button_signal(cat, (size_t)app->univ_button_idx,
-                                                cur - 1);
-    }
-
-    if(cur_btn) {
-        const char *proto = (cur_btn->signal.type == INFRARED_SIGNAL_PARSED)
-                                ? cur_btn->signal.parsed.protocol
-                                : "RAW";
-        view_info_add_field(app->info, "Brand",   cur_btn->name,         COLOR_CYAN);
-        view_info_add_field(app->info, "Protocol", proto,                COLOR_PRIMARY);
+    IrBruteStepInfo info = {0};
+    if(!done && cur > 0 && cur <= total &&
+       ir_brute_step_info(&s_bc, cur - 1, &info)) {
+        view_info_add_field(app->info, "Brand",    info.brand_name ? info.brand_name : "?", COLOR_CYAN);
+        view_info_add_field(app->info, "Protocol", info.protocol   ? info.protocol   : "?", COLOR_PRIMARY);
     } else if(done) {
-        view_info_add_field(app->info, "Status", "All sent — none?",     COLOR_DIM);
+        view_info_add_field(app->info, "Status", "All sent — none?", COLOR_DIM);
     }
 
     if(done) {
@@ -181,7 +142,9 @@ void ir_scene_universal_brute_on_enter(void *ctx)
 {
     IrApp *app = ctx;
     IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
-    size_t total = ir_universal_db_signal_count(cat, (size_t)app->univ_button_idx);
+
+    ir_brute_init(&s_bc, cat, app->univ_button_idx);
+    size_t total = ir_brute_total(&s_bc);
 
     app->univ_signal_idx = 0;
     if(app->univ_save_valid) {

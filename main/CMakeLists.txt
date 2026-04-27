@@ -26,6 +26,7 @@ idf_component_register(
         "smart_flipper/store"
         "smart_flipper/bridge"
         "smart_flipper/lib/infrared"
+        "smart_flipper/lib/infrared/brute"
         "smart_flipper/lib/infrared/encoder_decoder"
         "smart_flipper/lib/infrared/encoder_decoder/common"
         "smart_flipper/lib/infrared/encoder_decoder/nec"
