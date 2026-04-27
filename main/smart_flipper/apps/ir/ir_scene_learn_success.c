@@ -98,6 +98,15 @@ void ir_scene_learn_success_on_enter(void *ctx)
         accent = ir_protocol_color(app->last_decoded.protocol);
         view_info_set_header(app->info, app->last_decoded.protocol, accent);
         view_info_add_pill(app->info, app->last_decoded.protocol, accent);
+
+        /* Confidence pill: green if Flipper-codec, yellow if codec_db
+         * fallback. RAW-only is handled in the !last_decoded_valid branch. */
+        const char *conf_text = (app->last_decoded.source == IR_DECODED_FLIPPER)
+                                    ? "Verified" : "Best-fit";
+        lv_color_t  conf_clr  = (app->last_decoded.source == IR_DECODED_FLIPPER)
+                                    ? COLOR_GREEN : COLOR_YELLOW;
+        view_info_add_pill(app->info, conf_text, conf_clr);
+
         snprintf(addr_buf, sizeof(addr_buf), "0x%08lX",
                  (unsigned long)app->last_decoded.address);
         snprintf(cmd_buf, sizeof(cmd_buf), "0x%08lX",
@@ -119,6 +128,7 @@ void ir_scene_learn_success_on_enter(void *ctx)
         }
     } else {
         view_info_set_header(app->info, "Raw Capture", COLOR_YELLOW);
+        view_info_add_pill(app->info, "Raw only", COLOR_ORANGE);
         char cnt_buf[32];
         snprintf(cnt_buf, sizeof(cnt_buf), "%u",
                  (unsigned)app->pending_button.signal.raw.n_timings);
