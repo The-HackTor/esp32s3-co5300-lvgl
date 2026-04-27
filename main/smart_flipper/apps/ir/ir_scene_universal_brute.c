@@ -67,7 +67,8 @@ static void brute_submit_next(IrApp *app)
     uint16_t *t = NULL;
     size_t    n = 0;
     uint32_t  hz = 38000;
-    esp_err_t err = ir_brute_step_encode(&s_st.bc, s_st.cur, &t, &n, &hz);
+    uint8_t   mr = 1;
+    esp_err_t err = ir_brute_step_encode(&s_st.bc, s_st.cur, &t, &n, &hz, &mr);
     if(err != ESP_OK || !t || n == 0) {
         if(t) free(t);
         ESP_LOGW(TAG, "encode step %u: %s", (unsigned)s_st.cur, esp_err_to_name(err));
@@ -76,8 +77,12 @@ static void brute_submit_next(IrApp *app)
         return;
     }
 
-    uint8_t reps = ir_settings()->brute_repeat;
-    if(reps == 0) reps = 1;
+    /* Match Flipper: each "send" fires MAX(protocol_min_repeat, user setting).
+     * NEC=1, Samsung=1, RC5/6=1; SIRC=3 (Sony); Pioneer=2. RAW + brand
+     * encoders use the user setting only (min_repeat = 1). */
+    uint8_t user_reps = ir_settings()->brute_repeat;
+    if(user_reps == 0) user_reps = 1;
+    uint8_t reps = user_reps > mr ? user_reps : mr;
 
     HwIrTxRequest req = {
         .timings    = t,

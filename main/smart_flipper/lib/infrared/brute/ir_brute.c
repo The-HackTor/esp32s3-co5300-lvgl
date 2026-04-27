@@ -3,6 +3,7 @@
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/ac/ac_brand.h"
 #include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/encoder_decoder/infrared.h"
 #include "hw/hw_ir.h"
 
 #include "freertos/FreeRTOS.h"
@@ -142,10 +143,11 @@ static esp_err_t encode_brand_to_buf(size_t brand_idx,
 
 esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
                                uint16_t **out_timings, size_t *out_n,
-                               uint32_t *out_freq_hz)
+                               uint32_t *out_freq_hz, uint8_t *out_min_repeat)
 {
     if(!bc || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
     *out_timings = NULL; *out_n = 0; *out_freq_hz = 38000;
+    if(out_min_repeat) *out_min_repeat = 1;
 
     uint16_t *t = NULL;
     size_t    n = 0;
@@ -203,6 +205,19 @@ esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
     }
     *out_n       = n;
     *out_freq_hz = hz;
+    if(out_min_repeat) {
+        if(is_brand || !proto) {
+            *out_min_repeat = 1;
+        } else {
+            InfraredProtocol p = infrared_get_protocol_by_name(proto);
+            if(infrared_is_protocol_valid(p)) {
+                size_t mr = infrared_get_protocol_min_repeat_count(p);
+                *out_min_repeat = (mr > 0 && mr < 32) ? (uint8_t)mr : 1;
+            } else {
+                *out_min_repeat = 1;
+            }
+        }
+    }
     return ESP_OK;
 }
 
@@ -211,9 +226,11 @@ esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repea
     uint16_t *t = NULL;
     size_t    n = 0;
     uint32_t  hz = 38000;
-    esp_err_t err = ir_brute_step_encode(bc, idx, &t, &n, &hz);
+    uint8_t   mr = 1;
+    esp_err_t err = ir_brute_step_encode(bc, idx, &t, &n, &hz, &mr);
     if(err != ESP_OK) return err;
-    err = fire_n(t, n, hz, repeat);
+    uint8_t reps = repeat > mr ? repeat : mr;
+    err = fire_n(t, n, hz, reps);
     free(t);
     return err;
 }
