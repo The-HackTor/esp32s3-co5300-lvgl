@@ -16,6 +16,7 @@ typedef struct {
     char     remote[IR_REMOTE_NAME_MAX];
     char     button[IR_REMOTE_NAME_MAX];
     uint32_t delay_ms;
+    uint8_t  repeat;        /* >=1; default 1; legacy files load as 1 */
 } IrMacroStep;
 
 typedef struct {

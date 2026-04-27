@@ -16,11 +16,8 @@ static void delay_picked(void *ctx, uint32_t index)
     if(index >= DELAY_PRESETS_N) return;
 
     app->pending_step.delay_ms = DELAY_PRESETS_MS[index];
-    if(macro_append_step(&app->current_macro, &app->pending_step) == ESP_OK) {
-        macro_save(&app->current_macro);
-    }
-    scene_manager_search_and_switch_to_previous_scene(&app->scene_mgr,
-                                                     ir_SCENE_MacroEdit);
+    if(app->pending_step.repeat == 0) app->pending_step.repeat = 1;
+    scene_manager_next_scene(&app->scene_mgr, ir_SCENE_MacroPickRepeat);
 }
 
 void ir_scene_macro_pick_delay_on_enter(void *ctx)

@@ -59,6 +59,7 @@ static void step_tapped(void *ctx, uint32_t index)
 
     if(index == ADD_STEP_INDEX) {
         memset(&app->pending_step, 0, sizeof(app->pending_step));
+        app->pending_step.repeat = 1;
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_MacroPickRemote);
         return;
     }

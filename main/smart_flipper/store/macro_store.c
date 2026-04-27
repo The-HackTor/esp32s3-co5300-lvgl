@@ -200,6 +200,11 @@ esp_err_t macro_load(IrMacro *out, const char *path)
             snprintf(cur.button, sizeof(cur.button), "%s", skip_ws(p + 7));
         } else if(starts_with(p, "delay_ms:")) {
             cur.delay_ms = (uint32_t)atoi(skip_ws(p + 9));
+        } else if(starts_with(p, "repeat:")) {
+            int rp = atoi(skip_ws(p + 7));
+            if(rp < 1) rp = 1;
+            if(rp > 99) rp = 99;
+            cur.repeat = (uint8_t)rp;
         }
     }
     if(cur_valid && cur.remote[0] && cur.button[0]) {
@@ -220,8 +225,9 @@ esp_err_t macro_save(const IrMacro *in)
     fprintf(fp, "%s\n%s\n", IR_MACRO_FILETYPE, IR_MACRO_VERSION);
     for(size_t i = 0; i < in->step_count; i++) {
         const IrMacroStep *s = &in->steps[i];
-        fprintf(fp, "#\nremote: %s\nbutton: %s\ndelay_ms: %lu\n",
-                s->remote, s->button, (unsigned long)s->delay_ms);
+        uint8_t rp = s->repeat ? s->repeat : 1;
+        fprintf(fp, "#\nremote: %s\nbutton: %s\ndelay_ms: %lu\nrepeat: %u\n",
+                s->remote, s->button, (unsigned long)s->delay_ms, rp);
     }
     fclose(fp);
     return ESP_OK;

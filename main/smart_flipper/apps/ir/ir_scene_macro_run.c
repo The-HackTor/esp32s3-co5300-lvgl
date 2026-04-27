@@ -140,7 +140,11 @@ static void runner_task(void *arg)
             continue;
         }
 
-        if(!r->stop) send_button(btn);
+        uint8_t reps = s->repeat ? s->repeat : 1;
+        for(uint8_t k = 0; k < reps && !r->stop; k++) {
+            send_button(btn);
+            if(k + 1 < reps) sleep_interruptible(r, 120);
+        }
         ir_remote_free(&rem);
 
         if(s->delay_ms > 0) {
@@ -191,15 +195,19 @@ static void render(IrApp *app)
                          r->finished ? "Done" : app->current_macro.name,
                          r->finished ? COLOR_GREEN : COLOR_YELLOW);
 
-    char progress[32];
-    snprintf(progress, sizeof(progress), "Step %lu / %lu",
-             (unsigned long)r->cur, (unsigned long)r->total);
-    view_info_add_field(app->info, "Progress", progress, COLOR_PRIMARY);
+    view_info_add_progress(app->info,
+                           r->finished ? COLOR_GREEN : COLOR_YELLOW);
+    view_info_set_progress(app->info, r->cur, r->total);
 
     if(!r->finished && r->cur > 0 && r->cur <= r->total) {
         const IrMacroStep *s = &app->current_macro.steps[r->cur - 1];
         view_info_add_field(app->info, "Remote", s->remote, COLOR_CYAN);
         view_info_add_field(app->info, "Button", s->button, COLOR_CYAN);
+        if(s->repeat > 1) {
+            char rb[16];
+            snprintf(rb, sizeof(rb), "x%u", (unsigned)s->repeat);
+            view_info_add_field(app->info, "Repeat", rb, COLOR_YELLOW);
+        }
     }
 
     view_info_add_button(app->info, r->finished ? "Back" : "Stop",
