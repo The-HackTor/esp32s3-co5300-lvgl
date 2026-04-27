@@ -312,6 +312,11 @@ void ir_scene_universal_brute_on_enter(void *ctx)
         scene_manager_previous_scene(&app->scene_mgr);
         return;
     }
+
+    /* No RX during brute: matches Flipper's per-scene worker lifecycle and
+     * eliminates self-echo decode pollution + heap churn from rx_drain. */
+    ir_app_rx_pause();
+
     s_st.tick = lv_timer_create(brute_tick_cb, BRUTE_TICK_MS, app);
 
     ir_brute_log_next_send();
@@ -355,6 +360,10 @@ void ir_scene_universal_brute_on_exit(void *ctx)
 
     s_st.in_flight = false;
     s_st.last_tx_id = 0;
+
+    /* Restore the IR RX subsystem so subsequent scenes (Learn, History, etc.)
+     * resume capturing. Mirror Flipper's per-scene worker lifecycle. */
+    ir_app_rx_resume();
 
     hw_rgb_off();
     view_info_reset(app->info);

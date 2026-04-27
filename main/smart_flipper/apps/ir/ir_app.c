@@ -266,6 +266,25 @@ static SceneManager *get_scene_manager(void) { return &app.scene_mgr; }
 
 IrApp *ir_app_get(void) { return &app; }
 
+void ir_app_rx_pause(void)
+{
+    hw_ir_rx_stop();
+    if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
+    if(app.rx_queue) {
+        IrRxFrame *frame = NULL;
+        while(xQueueReceive(app.rx_queue, &frame, 0) == pdTRUE) {
+            if(frame) free(frame);
+        }
+    }
+}
+
+void ir_app_rx_resume(void)
+{
+    if(app.rx_queue) xQueueReset(app.rx_queue);
+    hw_ir_rx_start(rx_worker_cb, NULL);
+    if(app.rx_drain_timer) lv_timer_resume(app.rx_drain_timer);
+}
+
 void ir_app_register(void)
 {
     static const AppDescriptor desc = {

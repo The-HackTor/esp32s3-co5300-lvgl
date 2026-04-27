@@ -102,4 +102,11 @@ typedef struct {
 void   ir_app_register(void);
 IrApp *ir_app_get(void);
 
+/* Pause/resume the IR RX subsystem (RMT channel + drain timer + queue).
+ * Use in scenes that fire TX bursts to stop self-echo from polluting
+ * pending_button / history and from loading the heap with decode allocs.
+ * Mirrors Flipper's per-scene start/stop of the IR worker. */
+void   ir_app_rx_pause(void);
+void   ir_app_rx_resume(void);
+
 #endif
