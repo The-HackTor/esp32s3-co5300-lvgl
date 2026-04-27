@@ -19,7 +19,7 @@
 
 #define TAG "ir_univ_brute"
 
-#define BRUTE_TICK_MS         50
+#define BRUTE_TICK_MS         30   /* matches rx_drain pace; ~Flipper's 100ms total step time */
 #define BRUTE_INTER_FRAME_MS  110
 #define BRUTE_CANCEL_WAIT_MS  300
 #define BRUTE_EVT_QUEUE_DEPTH 8
