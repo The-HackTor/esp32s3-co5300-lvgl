@@ -58,9 +58,11 @@ typedef struct {
     int             selected_button_idx;
     int             edit_op;
     int             universal_category;
-    /* Tracks the next signal index to fire for each button in the current
-     * universal category. Reset on category change. Walks 0..M-1 and wraps. */
-    uint16_t        universal_signal_cursor[16];
+    int             univ_button_idx;
+    size_t          univ_signal_idx;
+    IrButton        univ_save_button;
+    bool            univ_save_valid;
+    void           *univ_runner;
 
     QueueHandle_t   rx_queue;
     lv_timer_t     *rx_drain_timer;
