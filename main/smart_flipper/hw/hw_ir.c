@@ -42,6 +42,9 @@ static uint32_t              s_carrier_hz_active;
 static bool                  s_inited;
 static int64_t               s_last_tx_done_us;
 static SemaphoreHandle_t     s_tx_mtx;
+static volatile bool         s_log_next_send;
+
+void hw_ir_log_next_send(void) { s_log_next_send = true; }
 
 /* RX state */
 static rmt_channel_handle_t  s_rx_chan;
@@ -126,7 +129,22 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
 
     if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, portMAX_DELAY);
 
-    esp_err_t err = apply_carrier(carrier_hz ? carrier_hz : 38000);
+    const uint32_t req_hz = carrier_hz ? carrier_hz : 38000;
+    esp_err_t err = apply_carrier(req_hz);
+    if(s_log_next_send) {
+        s_log_next_send = false;
+        const size_t dump = n_timings < 8 ? n_timings : 8;
+        ESP_LOGI(TAG,
+                 "send n=%u req_hz=%lu active_hz=%lu apply=%s "
+                 "t[0..%u]=%u %u %u %u %u %u %u %u",
+                 (unsigned)n_timings, (unsigned long)req_hz,
+                 (unsigned long)s_carrier_hz_active, esp_err_to_name(err),
+                 (unsigned)dump,
+                 dump > 0 ? timings[0] : 0, dump > 1 ? timings[1] : 0,
+                 dump > 2 ? timings[2] : 0, dump > 3 ? timings[3] : 0,
+                 dump > 4 ? timings[4] : 0, dump > 5 ? timings[5] : 0,
+                 dump > 6 ? timings[6] : 0, dump > 7 ? timings[7] : 0);
+    }
     if(err != ESP_OK) {
         if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
         return err;

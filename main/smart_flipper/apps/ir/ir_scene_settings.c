@@ -8,9 +8,10 @@
 
 #define IDX_BRUTE_GAP    0
 #define IDX_BRUTE_AC_GAP 1
-#define IDX_TX_ECHO      2
-#define IDX_HISTORY_MAX  3
-#define IDX_AUTO_SAVE    4
+#define IDX_BRUTE_REPEAT 2
+#define IDX_TX_ECHO      3
+#define IDX_HISTORY_MAX  4
+#define IDX_AUTO_SAVE    5
 
 static void render(IrApp *app);
 
@@ -30,6 +31,15 @@ static uint16_t cycle_brute_ac_gap(uint16_t cur)
         if(cur == opts[i]) return opts[(i + 1) % (sizeof(opts)/sizeof(opts[0]))];
     }
     return opts[0];
+}
+
+static uint8_t cycle_brute_repeat(uint8_t cur)
+{
+    static const uint8_t opts[] = { 1, 2, 3, 5 };
+    for(size_t i = 0; i < sizeof(opts)/sizeof(opts[0]); i++) {
+        if(cur == opts[i]) return opts[(i + 1) % (sizeof(opts)/sizeof(opts[0]))];
+    }
+    return 3;
 }
 
 static uint16_t cycle_echo(uint16_t cur)
@@ -57,6 +67,7 @@ static void item_tapped(void *ctx, uint32_t index)
     switch(index) {
     case IDX_BRUTE_GAP:    ir_settings_set_brute_gap_ms   (cycle_brute_gap   (cur->brute_gap_ms));    break;
     case IDX_BRUTE_AC_GAP: ir_settings_set_brute_ac_gap_ms(cycle_brute_ac_gap(cur->brute_ac_gap_ms)); break;
+    case IDX_BRUTE_REPEAT: ir_settings_set_brute_repeat   (cycle_brute_repeat(cur->brute_repeat));    break;
     case IDX_TX_ECHO:      ir_settings_set_tx_echo_ms     (cycle_echo        (cur->tx_echo_ms));      break;
     case IDX_HISTORY_MAX:  ir_settings_set_history_max    (cycle_history     (cur->history_max));    break;
     case IDX_AUTO_SAVE:    ir_settings_set_auto_save      (!cur->auto_save_worked);                  break;
@@ -80,6 +91,10 @@ static void render(IrApp *app)
     snprintf(buf, sizeof(buf), "AC brute gap:  %u ms", (unsigned)s->brute_ac_gap_ms);
     view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, buf, COLOR_CYAN,
                           IDX_BRUTE_AC_GAP, item_tapped, app);
+
+    snprintf(buf, sizeof(buf), "Brute repeat:  %ux", (unsigned)s->brute_repeat);
+    view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, buf, COLOR_ORANGE,
+                          IDX_BRUTE_REPEAT, item_tapped, app);
 
     snprintf(buf, sizeof(buf), "TX echo gate:  %u ms", (unsigned)s->tx_echo_ms);
     view_submenu_add_item(app->submenu, LV_SYMBOL_BELL, buf, COLOR_ORANGE,

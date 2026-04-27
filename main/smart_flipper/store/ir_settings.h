@@ -12,6 +12,7 @@ typedef struct {
     uint16_t brute_ac_gap_ms;    /* default 250 */
     uint16_t tx_echo_ms;         /* default 100 */
     uint16_t history_max;        /* default 64  */
+    uint8_t  brute_repeat;       /* default 3, range 1..5 */
     bool     auto_save_worked;   /* default false */
 } IrSettings;
 
@@ -23,6 +24,7 @@ void ir_settings_set_brute_gap_ms   (uint16_t v);
 void ir_settings_set_brute_ac_gap_ms(uint16_t v);
 void ir_settings_set_tx_echo_ms     (uint16_t v);
 void ir_settings_set_history_max    (uint16_t v);
+void ir_settings_set_brute_repeat   (uint8_t  v);
 void ir_settings_set_auto_save      (bool v);
 
 #endif

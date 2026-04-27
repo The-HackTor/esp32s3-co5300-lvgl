@@ -9,6 +9,7 @@ static IrSettings s = {
     .brute_ac_gap_ms  = 250,
     .tx_echo_ms       = 100,
     .history_max      = 64,
+    .brute_repeat     = 3,
     .auto_save_worked = false,
 };
 
@@ -49,6 +50,8 @@ esp_err_t ir_settings_load(void)
             if(iv >= 0 && iv <= 1000) s.tx_echo_ms = (uint16_t)iv;
         } else if(strcmp(key, "history_max") == 0) {
             if(iv >= 8 && iv <= 256) s.history_max = (uint16_t)iv;
+        } else if(strcmp(key, "brute_repeat") == 0) {
+            if(iv >= 1 && iv <= 10) s.brute_repeat = (uint8_t)iv;
         } else if(strcmp(key, "auto_save") == 0) {
             s.auto_save_worked = (iv != 0);
         }
@@ -66,6 +69,7 @@ esp_err_t ir_settings_save(void)
     fprintf(fp, "brute_ac_gap_ms=%u\n", s.brute_ac_gap_ms);
     fprintf(fp, "tx_echo_ms=%u\n",      s.tx_echo_ms);
     fprintf(fp, "history_max=%u\n",     s.history_max);
+    fprintf(fp, "brute_repeat=%u\n",    s.brute_repeat);
     fprintf(fp, "auto_save=%d\n",       s.auto_save_worked ? 1 : 0);
     fclose(fp);
     return ESP_OK;
@@ -75,4 +79,5 @@ void ir_settings_set_brute_gap_ms   (uint16_t v) { s.brute_gap_ms     = v; ir_se
 void ir_settings_set_brute_ac_gap_ms(uint16_t v) { s.brute_ac_gap_ms  = v; ir_settings_save(); }
 void ir_settings_set_tx_echo_ms     (uint16_t v) { s.tx_echo_ms       = v; ir_settings_save(); }
 void ir_settings_set_history_max    (uint16_t v) { s.history_max      = v; ir_settings_save(); }
+void ir_settings_set_brute_repeat   (uint8_t  v) { s.brute_repeat     = v; ir_settings_save(); }
 void ir_settings_set_auto_save      (bool v)     { s.auto_save_worked = v; ir_settings_save(); }

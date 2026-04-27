@@ -31,8 +31,10 @@ static bool brute_step(IrRunner *r, void *user_data, size_t step_idx)
 {
     (void)r;
     IrApp *app = user_data;
+    uint8_t repeat = ir_settings()->brute_repeat;
+    if(repeat == 0) repeat = 1;
     hw_rgb_set(255, 0, 0);
-    esp_err_t err = ir_brute_step_send(&s_bc, step_idx);
+    esp_err_t err = ir_brute_step_send(&s_bc, step_idx, repeat);
     hw_rgb_off();
     if(err != ESP_OK) {
         ESP_LOGW(TAG, "step %u: %s", (unsigned)step_idx, esp_err_to_name(err));
@@ -186,6 +188,9 @@ void ir_scene_universal_brute_on_enter(void *ctx)
 
     ir_brute_init(&s_bc, cat, app->univ_button_idx);
     size_t total = ir_brute_total(&s_bc);
+
+    ir_brute_log_next_send();
+    hw_ir_log_next_send();
 
     app->univ_signal_idx = 0;
     if(app->univ_save_valid) {

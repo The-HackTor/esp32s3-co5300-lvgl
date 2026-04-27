@@ -70,4 +70,9 @@ void hw_ir_rx_stop(void);
  * leaking into the TSOP. window_us=100000 (100 ms) is a safe default. */
 bool hw_ir_tx_was_recent_us(int64_t window_us);
 
+/* Arm a one-shot ESP_LOGI on the next hw_ir_send_raw call: dumps n_timings,
+ * carrier_hz arg, s_carrier_hz_active after apply, apply_carrier err, and
+ * the first 8 timings. Self-disarms after one log. Bench-triage only. */
+void hw_ir_log_next_send(void);
+
 #endif

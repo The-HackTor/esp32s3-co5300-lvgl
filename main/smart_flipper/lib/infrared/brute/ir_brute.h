@@ -23,7 +23,11 @@ typedef struct {
 void      ir_brute_init(IrBruteContext *bc, IrUniversalCategory cat, int button_idx);
 size_t    ir_brute_total(const IrBruteContext *bc);
 bool      ir_brute_step_info(const IrBruteContext *bc, size_t idx, IrBruteStepInfo *out);
-esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx);
+esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repeat);
 esp_err_t ir_brute_step_to_button(const IrBruteContext *bc, size_t idx, IrButton *out);
+
+/* Arm a one-shot ESP_LOGI on the next ir_brute_step_send call. Used for bench
+ * triage. Self-disarms after one log. */
+void      ir_brute_log_next_send(void);
 
 #endif
