@@ -75,6 +75,11 @@ bool hw_ir_tx_was_recent_us(int64_t window_us);
  * the first 8 timings. Self-disarms after one log. Bench-triage only. */
 void hw_ir_log_next_send(void);
 
+/* Toggle the IR_TX GPIO output inversion. Tears down and rebuilds the RMT
+ * TX channel under s_tx_mtx; safe to call at any time. Use to flip carrier
+ * polarity at the LED line when the gate-driver path inverts unexpectedly. */
+esp_err_t hw_ir_set_invert(bool invert);
+
 /*
  * Async TX engine. A single worker task (pinned to core 1) owns a request
  * queue. Submit a transmit, return immediately, get notified via callback

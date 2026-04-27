@@ -44,6 +44,7 @@ static rmt_channel_handle_t  s_tx_chan;
 static rmt_encoder_handle_t  s_copy_encoder;
 static uint32_t              s_carrier_hz_active;
 static bool                  s_inited;
+static bool                  s_tx_invert_active;
 static int64_t               s_last_tx_done_us;
 static SemaphoreHandle_t     s_tx_mtx;
 static volatile bool         s_log_next_send;
@@ -265,20 +266,59 @@ static esp_err_t apply_carrier(uint32_t carrier_hz)
     return ESP_OK;
 }
 
-void hw_ir_init(void)
+static esp_err_t build_tx_channel(bool invert)
 {
-    if(s_inited) return;
-
     const rmt_tx_channel_config_t tx_cfg = {
         .gpio_num          = IR_TX_GPIO,
         .clk_src           = RMT_CLK_SRC_DEFAULT,
         .resolution_hz     = IR_RMT_RESOLUTION,
         .mem_block_symbols = IR_TX_MEM_SYMBOLS,
         .trans_queue_depth = IR_TX_QUEUE_DEPTH,
-        .flags.invert_out  = false,
+        .flags.invert_out  = invert,
         .flags.with_dma    = false,
     };
-    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_cfg, &s_tx_chan));
+    return rmt_new_tx_channel(&tx_cfg, &s_tx_chan);
+}
+
+esp_err_t hw_ir_set_invert(bool invert)
+{
+    if(!s_inited) {
+        s_tx_invert_active = invert;
+        return ESP_OK;
+    }
+    if(invert == s_tx_invert_active) return ESP_OK;
+
+    if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, portMAX_DELAY);
+
+    esp_err_t err = rmt_disable(s_tx_chan);
+    if(err != ESP_OK) goto out;
+    err = rmt_del_channel(s_tx_chan);
+    if(err != ESP_OK) { s_tx_chan = NULL; goto out; }
+    s_tx_chan = NULL;
+
+    err = build_tx_channel(invert);
+    if(err != ESP_OK) goto out;
+
+    /* Carrier registers are reset on channel destroy; force a fresh apply. */
+    s_carrier_hz_active = 0;
+    err = apply_carrier(38000);
+    if(err != ESP_OK) goto out;
+    err = rmt_enable(s_tx_chan);
+    if(err != ESP_OK) goto out;
+
+    s_tx_invert_active = invert;
+    ESP_LOGI(TAG, "TX invert -> %d", (int)invert);
+
+out:
+    if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
+    return err;
+}
+
+void hw_ir_init(void)
+{
+    if(s_inited) return;
+
+    ESP_ERROR_CHECK(build_tx_channel(s_tx_invert_active));
 
     /* Copy encoder: feeds caller-provided rmt_symbol_word_t array straight
      * to the channel's TX hardware. The carrier is applied by the channel

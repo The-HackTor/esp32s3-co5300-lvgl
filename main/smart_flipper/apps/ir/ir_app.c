@@ -190,6 +190,7 @@ static void on_init(void)
     ir_store_init();
     macro_store_init();
     ir_settings_load();
+    hw_ir_set_invert(ir_settings()->tx_invert);
     ir_universal_db_init();
     ir_universal_index_init();
 }

@@ -3,6 +3,7 @@
 #include "ui/styles.h"
 #include "ui/transition.h"
 #include "store/ir_settings.h"
+#include "hw/hw_ir.h"
 
 #include <stdio.h>
 
@@ -12,6 +13,7 @@
 #define IDX_TX_ECHO      3
 #define IDX_HISTORY_MAX  4
 #define IDX_AUTO_SAVE    5
+#define IDX_TX_INVERT    6
 
 static void render(IrApp *app);
 
@@ -71,6 +73,10 @@ static void item_tapped(void *ctx, uint32_t index)
     case IDX_TX_ECHO:      ir_settings_set_tx_echo_ms     (cycle_echo        (cur->tx_echo_ms));      break;
     case IDX_HISTORY_MAX:  ir_settings_set_history_max    (cycle_history     (cur->history_max));    break;
     case IDX_AUTO_SAVE:    ir_settings_set_auto_save      (!cur->auto_save_worked);                  break;
+    case IDX_TX_INVERT:
+        ir_settings_set_tx_invert(!cur->tx_invert);
+        hw_ir_set_invert(ir_settings()->tx_invert);
+        break;
     default:               return;
     }
     render(app);
@@ -109,6 +115,12 @@ static void render(IrApp *app)
     view_submenu_add_item(app->submenu, LV_SYMBOL_SAVE, buf,
                           s->auto_save_worked ? COLOR_GREEN : COLOR_DIM,
                           IDX_AUTO_SAVE, item_tapped, app);
+
+    snprintf(buf, sizeof(buf), "TX invert:  %s",
+             s->tx_invert ? "On" : "Off");
+    view_submenu_add_item(app->submenu, LV_SYMBOL_LOOP, buf,
+                          s->tx_invert ? COLOR_ORANGE : COLOR_DIM,
+                          IDX_TX_INVERT, item_tapped, app);
 }
 
 void ir_scene_settings_on_enter(void *ctx)

@@ -11,6 +11,7 @@ static IrSettings s = {
     .history_max      = 64,
     .brute_repeat     = 3,
     .auto_save_worked = false,
+    .tx_invert        = false,
 };
 
 const IrSettings *ir_settings(void) { return &s; }
@@ -54,6 +55,8 @@ esp_err_t ir_settings_load(void)
             if(iv >= 1 && iv <= 10) s.brute_repeat = (uint8_t)iv;
         } else if(strcmp(key, "auto_save") == 0) {
             s.auto_save_worked = (iv != 0);
+        } else if(strcmp(key, "tx_invert") == 0) {
+            s.tx_invert = (iv != 0);
         }
     }
     fclose(fp);
@@ -71,6 +74,7 @@ esp_err_t ir_settings_save(void)
     fprintf(fp, "history_max=%u\n",     s.history_max);
     fprintf(fp, "brute_repeat=%u\n",    s.brute_repeat);
     fprintf(fp, "auto_save=%d\n",       s.auto_save_worked ? 1 : 0);
+    fprintf(fp, "tx_invert=%d\n",       s.tx_invert ? 1 : 0);
     fclose(fp);
     return ESP_OK;
 }
@@ -81,3 +85,4 @@ void ir_settings_set_tx_echo_ms     (uint16_t v) { s.tx_echo_ms       = v; ir_se
 void ir_settings_set_history_max    (uint16_t v) { s.history_max      = v; ir_settings_save(); }
 void ir_settings_set_brute_repeat   (uint8_t  v) { s.brute_repeat     = v; ir_settings_save(); }
 void ir_settings_set_auto_save      (bool v)     { s.auto_save_worked = v; ir_settings_save(); }
+void ir_settings_set_tx_invert      (bool v)     { s.tx_invert        = v; ir_settings_save(); }

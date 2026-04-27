@@ -14,6 +14,7 @@ typedef struct {
     uint16_t history_max;        /* default 64  */
     uint8_t  brute_repeat;       /* default 3, range 1..5 */
     bool     auto_save_worked;   /* default false */
+    bool     tx_invert;          /* default false; true = invert IR_TX gate logic */
 } IrSettings;
 
 const IrSettings *ir_settings(void);
@@ -26,5 +27,6 @@ void ir_settings_set_tx_echo_ms     (uint16_t v);
 void ir_settings_set_history_max    (uint16_t v);
 void ir_settings_set_brute_repeat   (uint8_t  v);
 void ir_settings_set_auto_save      (bool v);
+void ir_settings_set_tx_invert      (bool v);
 
 #endif
