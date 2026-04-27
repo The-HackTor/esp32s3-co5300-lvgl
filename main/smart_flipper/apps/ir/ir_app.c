@@ -96,6 +96,7 @@ static void rx_drain_timer_cb(lv_timer_t *t)
     if(decoded) {
         app.last_decoded = dec;
         app.last_decoded_valid = true;
+        ir_button_free(&app.pending_button);
         memset(&app.pending_button, 0, sizeof(app.pending_button));
 
         IrHistoryEntry hist = {
@@ -139,6 +140,7 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         scene_manager_handle_custom_event(&app.scene_mgr, IR_EVT_RX_DECODED);
     } else {
         app.last_decoded_valid = false;
+        ir_button_free(&app.pending_button);
         memset(&app.pending_button, 0, sizeof(app.pending_button));
         app.pending_button.signal.type = INFRARED_SIGNAL_RAW;
         app.pending_button.signal.raw.freq_hz = 38000;

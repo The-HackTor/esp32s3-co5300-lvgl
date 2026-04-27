@@ -135,9 +135,11 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
     /* Pack pairs of (mark, space) durations into rmt_symbol_word_t. Each
      * symbol holds two phases (level0+duration0, level1+duration1). For an
      * odd-count buffer (final mark with no trailing space) we pad with a
-     * 0-duration LOW phase so RMT terminates cleanly. */
+     * 0-duration LOW phase so RMT terminates cleanly. The symbol buffer is
+     * static (2 KB) -- s_tx_mtx serializes callers, and a stack-resident
+     * version overflowed runner_task's 4 KB stack on heavy frames. */
     const size_t n_symbols = (n_timings + 1) / 2;
-    rmt_symbol_word_t symbols[(IR_MAX_TIMINGS + 1) / 2];
+    static rmt_symbol_word_t symbols[(IR_MAX_TIMINGS + 1) / 2];
 
     for(size_t i = 0; i < n_symbols; i++) {
         const size_t i0 = i * 2;

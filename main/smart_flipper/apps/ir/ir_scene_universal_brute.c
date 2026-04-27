@@ -19,7 +19,7 @@
 
 #define BRUTE_GAP_MS         150
 #define BRUTE_AC_GAP_MS      250
-#define BRUTE_RUNNER_STACK   4096
+#define BRUTE_RUNNER_STACK   6144
 #define BRUTE_RUNNER_PRIO    5
 #define BRUTE_RUNNER_CORE    1
 
