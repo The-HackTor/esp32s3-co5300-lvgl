@@ -21,7 +21,11 @@ static const char *TAG = "hw_ir";
 #define IR_TX_MEM_SYMBOLS   64
 #define IR_RX_MEM_SYMBOLS   128        /* non-DMA on S3 supports up to a few hundred */
 #define IR_TX_QUEUE_DEPTH   4
-#define IR_CARRIER_DUTY     0.33f      /* per VSMY14940 datasheet sweet spot */
+/* 0.50 (vs Flipper's 0.33) -- 3 LEDs in parallel through DMN2058UW want as
+ * much radiated optical power per frame as possible to clear unknown TVs;
+ * burst duty over the brute scene is ~10%, well under VSMY14940 continuous
+ * rating. */
+#define IR_CARRIER_DUTY     0.50f
 
 #define IR_MAX_TIMINGS      1024       /* one signal -- NEC ~67, AC frames ~600 */
 #define IR_RX_MAX_SYMBOLS   512        /* one captured frame, 1024 alternating edges */
@@ -240,18 +244,16 @@ typedef struct {
 
 static esp_err_t apply_carrier(uint32_t carrier_hz)
 {
-    if(carrier_hz == s_carrier_hz_active) return ESP_OK;
-
+    /* No short-circuit: apply fresh on every TX. IDF v6.1's carrier registers
+     * can drift if the channel was paused/resumed mid-burst, and forcing a
+     * re-apply costs only a couple of register writes inside a spinlock. */
     rmt_carrier_config_t cfg = {
         .frequency_hz     = carrier_hz,
         .duty_cycle       = IR_CARRIER_DUTY,
         .flags.polarity_active_low = false,
     };
     if(carrier_hz == 0) {
-        /* IDF rejects frequency_hz==0; disable by passing flags.disable. */
         cfg.frequency_hz = 38000;
-        /* No standard "disable" flag in v6.1 -- workaround: pass 0 duty.
-         * In practice we always send with carrier; the 0 path is debug only. */
         cfg.duty_cycle = 0.0f;
     }
     esp_err_t err = rmt_apply_carrier(s_tx_chan, &cfg);
