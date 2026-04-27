@@ -21,11 +21,10 @@ static const char *TAG = "hw_ir";
 #define IR_TX_MEM_SYMBOLS   64
 #define IR_RX_MEM_SYMBOLS   128        /* non-DMA on S3 supports up to a few hundred */
 #define IR_TX_QUEUE_DEPTH   4
-/* 0.50 (vs Flipper's 0.33) -- 3 LEDs in parallel through DMN2058UW want as
- * much radiated optical power per frame as possible to clear unknown TVs;
- * burst duty over the brute scene is ~10%, well under VSMY14940 continuous
- * rating. */
-#define IR_CARRIER_DUTY     0.50f
+/* 0.33 = Flipper-equivalent + IR-industry-standard. 3 parallel LEDs already
+ * give us ~3x Flipper's optical advantage at this duty; bumping to 0.50 risks
+ * TV AGC mismatch (some receivers expect 30-40% duty). */
+#define IR_CARRIER_DUTY     0.33f
 
 #define IR_MAX_TIMINGS      1024       /* one signal -- NEC ~67, AC frames ~600 */
 #define IR_RX_MAX_SYMBOLS   512        /* one captured frame, 1024 alternating edges */
