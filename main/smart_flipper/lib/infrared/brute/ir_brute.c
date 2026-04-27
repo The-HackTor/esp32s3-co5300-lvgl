@@ -200,6 +200,34 @@ esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
         return ESP_FAIL;
     }
 
+    if(owned) {
+        *out_timings = t;
+    } else {
+        /* Caller-frees contract: copy DB-RAM signals onto the heap. */
+        uint16_t *copy = malloc(n * sizeof(uint16_t));
+        if(!copy) return ESP_ERR_NO_MEM;
+        memcpy(copy, t, n * sizeof(uint16_t));
+        *out_timings = copy;
+    }
+    *out_n       = n;
+    *out_freq_hz = hz;
+
+    uint8_t  min_repeat_local = 1;
+    uint16_t silence_local    = 110;
+    if(is_brand || !proto) {
+        min_repeat_local = 1;
+        silence_local    = 110;
+    } else {
+        InfraredProtocol p = infrared_get_protocol_by_name(proto);
+        if(infrared_is_protocol_valid(p)) {
+            size_t mr = infrared_get_protocol_min_repeat_count(p);
+            min_repeat_local = (mr > 0 && mr < 32) ? (uint8_t)mr : 1;
+        }
+        silence_local = silence_ms_for_proto(proto);
+    }
+    if(out_min_repeat) *out_min_repeat = min_repeat_local;
+    if(out_silence_ms) *out_silence_ms = silence_local;
+
     if(s_log_next) {
         s_log_next = false;
         uint32_t addr = 0, cmd = 0;
@@ -212,39 +240,14 @@ esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
             }
         }
         ESP_LOGI(BRUTE_TAG,
-                 "step idx=%u brand=%d proto=%s addr=0x%lX cmd=0x%lX n=%u freq=%lu",
+                 "step idx=%u brand=%d proto=%s addr=0x%lX cmd=0x%lX "
+                 "n=%u freq=%lu min_rep=%u sil=%ums",
                  (unsigned)idx, (int)is_brand, proto ? proto : "?",
                  (unsigned long)addr, (unsigned long)cmd,
-                 (unsigned)n, (unsigned long)hz);
+                 (unsigned)n, (unsigned long)hz,
+                 (unsigned)min_repeat_local, (unsigned)silence_local);
     }
 
-    if(owned) {
-        *out_timings = t;
-    } else {
-        /* Caller-frees contract: copy DB-RAM signals onto the heap. */
-        uint16_t *copy = malloc(n * sizeof(uint16_t));
-        if(!copy) return ESP_ERR_NO_MEM;
-        memcpy(copy, t, n * sizeof(uint16_t));
-        *out_timings = copy;
-    }
-    *out_n       = n;
-    *out_freq_hz = hz;
-    if(out_min_repeat) {
-        if(is_brand || !proto) {
-            *out_min_repeat = 1;
-        } else {
-            InfraredProtocol p = infrared_get_protocol_by_name(proto);
-            if(infrared_is_protocol_valid(p)) {
-                size_t mr = infrared_get_protocol_min_repeat_count(p);
-                *out_min_repeat = (mr > 0 && mr < 32) ? (uint8_t)mr : 1;
-            } else {
-                *out_min_repeat = 1;
-            }
-        }
-    }
-    if(out_silence_ms) {
-        *out_silence_ms = (is_brand || !proto) ? 110 : silence_ms_for_proto(proto);
-    }
     return ESP_OK;
 }
 
