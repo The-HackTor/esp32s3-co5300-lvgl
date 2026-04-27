@@ -47,6 +47,7 @@ static void button_pressed(void *ctx, uint32_t index)
         hw_ir_send_repeat_start(r->timings, r->n_timings,
                                 r->freq_hz ? r->freq_hz : 38000,
                                 IR_REPEAT_PERIOD_MS);
+        ir_recents_append(btn->name, "RAW", 0, 0);
         return;
     }
 
@@ -63,6 +64,7 @@ static void button_pressed(void *ctx, uint32_t index)
     if(err == ESP_OK) {
         hw_ir_send_repeat_start(enc_t, enc_n, enc_hz, IR_REPEAT_PERIOD_MS);
         free(enc_t);
+        ir_recents_append(btn->name, msg.protocol, msg.address, msg.command);
         return;
     }
 

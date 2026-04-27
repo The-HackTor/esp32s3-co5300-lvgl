@@ -787,3 +787,68 @@ esp_err_t ir_ac_state_load(const char *brand,
     }
     return ESP_ERR_NOT_FOUND;
 }
+
+esp_err_t ir_recents_read(IrRecent *out, size_t cap, size_t *out_count)
+{
+    if(!out || !out_count) return ESP_ERR_INVALID_ARG;
+    *out_count = 0;
+    FILE *fp = fopen(IR_RECENTS_PATH, "r");
+    if(!fp) return ESP_OK;
+
+    char line[256];
+    while(*out_count < cap && fgets(line, sizeof(line), fp)) {
+        IrRecent *r = &out[*out_count];
+        unsigned long addr, cmd;
+        char label[IR_REMOTE_NAME_MAX];
+        char proto[IR_PROTOCOL_NAME_MAX];
+        if(sscanf(line, "%31s %23s %lx %lx", label, proto, &addr, &cmd) == 4) {
+            snprintf(r->label, sizeof(r->label), "%s", label);
+            snprintf(r->protocol, sizeof(r->protocol), "%s", proto);
+            r->address = (uint32_t)addr;
+            r->command = (uint32_t)cmd;
+            (*out_count)++;
+        }
+    }
+    fclose(fp);
+    return ESP_OK;
+}
+
+esp_err_t ir_recents_append(const char *label, const char *protocol,
+                            uint32_t address, uint32_t command)
+{
+    if(!label || !protocol) return ESP_ERR_INVALID_ARG;
+
+    IrRecent rows[IR_RECENTS_MAX];
+    size_t n = 0;
+    ir_recents_read(rows, IR_RECENTS_MAX, &n);
+
+    /* Drop existing duplicate of same (proto,addr,cmd). */
+    for(size_t i = 0; i < n; ) {
+        if(rows[i].address == address && rows[i].command == command &&
+           strcmp(rows[i].protocol, protocol) == 0) {
+            if(i < n - 1) memmove(&rows[i], &rows[i+1], (n-i-1) * sizeof(IrRecent));
+            n--;
+        } else {
+            i++;
+        }
+    }
+
+    /* Prepend new entry, drop oldest if at cap. */
+    if(n >= IR_RECENTS_MAX) n = IR_RECENTS_MAX - 1;
+    memmove(&rows[1], &rows[0], n * sizeof(IrRecent));
+    snprintf(rows[0].label, sizeof(rows[0].label), "%.31s", label);
+    snprintf(rows[0].protocol, sizeof(rows[0].protocol), "%.23s", protocol);
+    rows[0].address = address;
+    rows[0].command = command;
+    n++;
+
+    FILE *fp = fopen(IR_RECENTS_PATH, "w");
+    if(!fp) return ESP_FAIL;
+    for(size_t i = 0; i < n; i++) {
+        fprintf(fp, "%s %s %08lX %08lX\n",
+                rows[i].label, rows[i].protocol,
+                (unsigned long)rows[i].address, (unsigned long)rows[i].command);
+    }
+    fclose(fp);
+    return ESP_OK;
+}

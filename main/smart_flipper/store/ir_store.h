@@ -94,6 +94,20 @@ esp_err_t ir_ac_state_load(const char *brand,
                            bool *out_power, uint8_t *out_mode, uint8_t *out_temp_c,
                            uint8_t *out_fan, bool *out_swing);
 
+#define IR_RECENTS_PATH  "/sdcard/ir/recents.txt"
+#define IR_RECENTS_MAX   5
+
+typedef struct {
+    char     label[IR_REMOTE_NAME_MAX];
+    char     protocol[IR_PROTOCOL_NAME_MAX];
+    uint32_t address;
+    uint32_t command;
+} IrRecent;
+
+esp_err_t ir_recents_append(const char *label, const char *protocol,
+                            uint32_t address, uint32_t command);
+esp_err_t ir_recents_read(IrRecent *out, size_t cap, size_t *out_count);
+
 #define IR_HISTORY_PATH        "/sdcard/ir/history.log"
 #define IR_HISTORY_MAX_ENTRIES 64
 

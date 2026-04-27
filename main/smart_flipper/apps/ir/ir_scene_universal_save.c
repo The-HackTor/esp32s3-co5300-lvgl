@@ -65,6 +65,16 @@ static esp_err_t do_save(IrApp *app)
 
     err = ir_remote_save(&r);
     ir_remote_free(&r);
+    if(err == ESP_OK) {
+        if(app->univ_save_button.signal.type == INFRARED_SIGNAL_PARSED) {
+            ir_recents_append(app->univ_save_button.name,
+                              app->univ_save_button.signal.parsed.protocol,
+                              app->univ_save_button.signal.parsed.address,
+                              app->univ_save_button.signal.parsed.command);
+        } else {
+            ir_recents_append(app->univ_save_button.name, "RAW", 0, 0);
+        }
+    }
     return err;
 }
 

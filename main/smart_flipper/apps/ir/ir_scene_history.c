@@ -125,6 +125,7 @@ static void send_entry(const IrHistoryEntry *e, IrApp *app)
         hw_ir_send_raw(enc_t, enc_n, enc_hz);
         hw_rgb_off();
         free(enc_t);
+        ir_recents_append("History", e->protocol, e->address, e->command);
         return;
     }
 

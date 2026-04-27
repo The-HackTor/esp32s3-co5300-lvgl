@@ -3,12 +3,64 @@
 #include "app/app_manager.h"
 #include "ui/styles.h"
 #include "ui/transition.h"
+#include "store/ir_store.h"
+#include "hw/hw_ir.h"
+#include "hw/hw_rgb.h"
+#include "lib/infrared/ir_codecs.h"
+#include "lib/infrared/ir_protocol_color.h"
 
-enum { IDX_UNIVERSAL, IDX_LEARN, IDX_SAVED, IDX_HISTORY, IDX_MACROS, IDX_AC };
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define RECENT_INDEX_BASE  0xFFFFFE00u
+#define IDX_UNIVERSAL      0
+#define IDX_LEARN          1
+#define IDX_SAVED          2
+#define IDX_HISTORY        3
+#define IDX_MACROS         4
+#define IDX_AC             5
+
+static IrRecent s_recents[IR_RECENTS_MAX];
+static size_t   s_recent_count;
+
+static void send_recent(const IrRecent *r, IrApp *app)
+{
+    IrDecoded msg = {0};
+    snprintf(msg.protocol, sizeof(msg.protocol), "%s", r->protocol);
+    msg.address = r->address;
+    msg.command = r->command;
+
+    uint16_t *t  = NULL;
+    size_t    n  = 0;
+    uint32_t  hz = 38000;
+    if(ir_codecs_encode(&msg, &t, &n, &hz) != ESP_OK) {
+        view_popup_reset(app->popup);
+        view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
+        view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
+        view_popup_set_text(app->popup, msg.protocol);
+        view_popup_set_timeout(app->popup, 800, NULL, NULL);
+        view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
+                                                (uint32_t)TransitionFadeIn, 120);
+        return;
+    }
+    hw_rgb_set(255, 0, 0);
+    hw_ir_send_raw(t, n, hz);
+    hw_rgb_off();
+    free(t);
+    /* No re-append; the recent is already at top of recents.txt. */
+}
 
 static void submenu_cb(void *context, uint32_t index)
 {
     IrApp *app = context;
+
+    if(index >= RECENT_INDEX_BASE) {
+        size_t ri = index - RECENT_INDEX_BASE;
+        if(ri < s_recent_count) send_recent(&s_recents[ri], app);
+        return;
+    }
+
     scene_manager_set_scene_state(&app->scene_mgr, ir_SCENE_Start, index);
 
     switch(index) {
@@ -40,8 +92,28 @@ void ir_scene_start_on_enter(void *ctx)
 {
     IrApp *app = ctx;
 
+    s_recent_count = 0;
+    ir_recents_read(s_recents, IR_RECENTS_MAX, &s_recent_count);
+
+    char remote_names[1][IR_REMOTE_NAME_MAX];
+    size_t remote_count = 0;
+    ir_store_list_remotes(remote_names, 0, &remote_count);
+    /* When cap is 0 the helper just returns the count or 0; treat any
+     * non-zero value below as informational only. */
+
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, "IR Remote", COLOR_ORANGE);
+
+    for(size_t i = 0; i < s_recent_count; i++) {
+        char label[40];
+        snprintf(label, sizeof(label), "%s  %s 0x%lX",
+                 s_recents[i].label, s_recents[i].protocol,
+                 (unsigned long)s_recents[i].command);
+        view_submenu_add_item(app->submenu, LV_SYMBOL_PLAY, label,
+                              ir_protocol_color(s_recents[i].protocol),
+                              (uint32_t)(RECENT_INDEX_BASE + i),
+                              submenu_cb, app);
+    }
 
     view_submenu_add_item(app->submenu, LV_SYMBOL_LIST, "Universal Remotes",
                           COLOR_ORANGE, IDX_UNIVERSAL, submenu_cb, app);
