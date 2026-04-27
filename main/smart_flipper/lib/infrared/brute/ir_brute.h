@@ -23,11 +23,20 @@ typedef struct {
 void      ir_brute_init(IrBruteContext *bc, IrUniversalCategory cat, int button_idx);
 size_t    ir_brute_total(const IrBruteContext *bc);
 bool      ir_brute_step_info(const IrBruteContext *bc, size_t idx, IrBruteStepInfo *out);
+
+/* Encode-only: returns a heap-owned timings buffer the caller must free.
+ * Use this with hw_ir_tx_submit so the LVGL task never blocks on encode+TX. */
+esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
+                               uint16_t **out_timings, size_t *out_n,
+                               uint32_t *out_freq_hz);
+
+/* Sync convenience: encode + fire `repeat` times via hw_ir_send_raw. Kept for
+ * legacy callers; new code should prefer encode + hw_ir_tx_submit. */
 esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repeat);
+
 esp_err_t ir_brute_step_to_button(const IrBruteContext *bc, size_t idx, IrButton *out);
 
-/* Arm a one-shot ESP_LOGI on the next ir_brute_step_send call. Used for bench
- * triage. Self-disarms after one log. */
+/* Arm a one-shot ESP_LOGI on the next ir_brute_step_encode call. */
 void      ir_brute_log_next_send(void);
 
 #endif

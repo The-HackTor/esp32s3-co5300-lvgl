@@ -140,8 +140,13 @@ static esp_err_t encode_brand_to_buf(size_t brand_idx,
     return br->encode(&s_ac_default, out_t, out_n, out_hz);
 }
 
-esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repeat)
+esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
+                               uint16_t **out_timings, size_t *out_n,
+                               uint32_t *out_freq_hz)
 {
+    if(!bc || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
+    *out_timings = NULL; *out_n = 0; *out_freq_hz = 38000;
+
     uint16_t *t = NULL;
     size_t    n = 0;
     uint32_t  hz = 38000;
@@ -171,8 +176,6 @@ esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repea
 
     if(s_log_next) {
         s_log_next = false;
-        IrBruteStepInfo info = {0};
-        ir_brute_step_info(bc, idx, &info);
         uint32_t addr = 0, cmd = 0;
         if(idx < bc->db_count) {
             const IrButton *b = ir_universal_db_button_signal(bc->cat,
@@ -183,14 +186,35 @@ esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repea
             }
         }
         ESP_LOGI(BRUTE_TAG,
-                 "step idx=%u brand=%d proto=%s addr=0x%lX cmd=0x%lX n=%u freq=%lu repeat=%u",
+                 "step idx=%u brand=%d proto=%s addr=0x%lX cmd=0x%lX n=%u freq=%lu",
                  (unsigned)idx, (int)is_brand, proto ? proto : "?",
                  (unsigned long)addr, (unsigned long)cmd,
-                 (unsigned)n, (unsigned long)hz, (unsigned)repeat);
+                 (unsigned)n, (unsigned long)hz);
     }
 
+    if(owned) {
+        *out_timings = t;
+    } else {
+        /* Caller-frees contract: copy DB-RAM signals onto the heap. */
+        uint16_t *copy = malloc(n * sizeof(uint16_t));
+        if(!copy) return ESP_ERR_NO_MEM;
+        memcpy(copy, t, n * sizeof(uint16_t));
+        *out_timings = copy;
+    }
+    *out_n       = n;
+    *out_freq_hz = hz;
+    return ESP_OK;
+}
+
+esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repeat)
+{
+    uint16_t *t = NULL;
+    size_t    n = 0;
+    uint32_t  hz = 38000;
+    esp_err_t err = ir_brute_step_encode(bc, idx, &t, &n, &hz);
+    if(err != ESP_OK) return err;
     err = fire_n(t, n, hz, repeat);
-    if(owned) free(t);
+    free(t);
     return err;
 }
 

@@ -75,4 +75,54 @@ bool hw_ir_tx_was_recent_us(int64_t window_us);
  * the first 8 timings. Self-disarms after one log. Bench-triage only. */
 void hw_ir_log_next_send(void);
 
+/*
+ * Async TX engine. A single worker task (pinned to core 1) owns a request
+ * queue. Submit a transmit, return immediately, get notified via callback
+ * when the worker finishes / is cancelled.
+ *
+ * Use this instead of hw_ir_send_raw whenever the caller would otherwise
+ * block the LVGL task or a UI-driven runner. The brute scene's per-step
+ * burst uses this path; cancellation is bounded.
+ *
+ * Lifecycle:
+ *   hw_ir_init()                 -- starts worker on first call
+ *   id = hw_ir_tx_submit(req)    -- copies timings; worker fires when ready
+ *   hw_ir_tx_cancel(id)          -- soft-cancel a queued or in-flight burst
+ *   hw_ir_tx_cancel_all()        -- drain queue + abandon current burst
+ *
+ * The on_done callback runs on the worker task; it MUST NOT call LVGL.
+ * Forward to the LVGL side via xQueueSend / lv_async / a drain timer.
+ */
+typedef enum {
+    HW_IR_TX_DONE      = 0,
+    HW_IR_TX_CANCELLED = 1,
+    HW_IR_TX_ERROR     = 2,
+} HwIrTxResult;
+
+typedef void (*hw_ir_tx_done_cb_t)(uint32_t id, HwIrTxResult result, void *ctx);
+
+typedef struct {
+    const uint16_t   *timings;     /* copied internally on submit */
+    size_t            n_timings;
+    uint32_t          carrier_hz;
+    uint8_t           repeat;      /* 1..32 */
+    uint16_t          gap_ms;      /* between repeats */
+    hw_ir_tx_done_cb_t on_done;
+    void             *ctx;
+} HwIrTxRequest;
+
+/* Returns a non-zero submission id on success, 0 on failure. */
+uint32_t hw_ir_tx_submit(const HwIrTxRequest *req);
+
+/* Soft-cancel: matches by id. If the burst is currently firing, cancellation
+ * takes effect at the next inter-frame boundary (within gap_ms). The on_done
+ * callback fires with HW_IR_TX_CANCELLED. Idempotent. */
+void hw_ir_tx_cancel(uint32_t id);
+
+/* Drain everything: queued submissions are cancelled (each fires on_done
+ * with CANCELLED before being dropped). The currently-firing burst is also
+ * cancelled at next gap boundary. Blocks up to timeout_ms for the worker
+ * to ack idle. */
+void hw_ir_tx_cancel_all(uint32_t timeout_ms);
+
 #endif

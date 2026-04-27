@@ -46,6 +46,182 @@ static volatile bool         s_log_next_send;
 
 void hw_ir_log_next_send(void) { s_log_next_send = true; }
 
+/* ---- Async TX engine state (worker, queue, cancel) ---- */
+
+#define HW_IR_TX_QUEUE_DEPTH    8
+#define HW_IR_TX_WORKER_STACK   4096
+#define HW_IR_TX_WORKER_PRIO    (tskIDLE_PRIORITY + 4)
+#define HW_IR_TX_WORKER_CORE    1
+#define HW_IR_TX_MAX_REPEAT     32
+
+typedef struct {
+    uint32_t            id;
+    uint16_t           *timings;       /* heap-owned copy */
+    size_t              n_timings;
+    uint32_t            carrier_hz;
+    uint8_t             repeat;
+    uint16_t            gap_ms;
+    hw_ir_tx_done_cb_t  on_done;
+    void               *ctx;
+} tx_cmd_t;
+
+static QueueHandle_t   s_tx_cmd_queue;
+static SemaphoreHandle_t s_tx_idle_sem;       /* given when worker drops to empty queue */
+static TaskHandle_t    s_tx_worker;
+static volatile uint32_t s_tx_next_id = 1;
+static volatile uint32_t s_tx_cancel_id;       /* non-zero -> cancel that id */
+static volatile bool   s_tx_cancel_all;
+static volatile uint32_t s_tx_current_id;       /* 0 when worker is idle */
+static portMUX_TYPE    s_tx_id_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void tx_cmd_free(tx_cmd_t *c)
+{
+    if(c && c->timings) free(c->timings);
+}
+
+static void tx_cmd_finish(tx_cmd_t *c, HwIrTxResult result)
+{
+    if(c->on_done) c->on_done(c->id, result, c->ctx);
+    tx_cmd_free(c);
+}
+
+static bool worker_should_cancel(uint32_t id)
+{
+    if(s_tx_cancel_all) return true;
+    if(s_tx_cancel_id && s_tx_cancel_id == id) {
+        portENTER_CRITICAL(&s_tx_id_lock);
+        if(s_tx_cancel_id == id) s_tx_cancel_id = 0;
+        portEXIT_CRITICAL(&s_tx_id_lock);
+        return true;
+    }
+    return false;
+}
+
+static void tx_worker_fn(void *arg)
+{
+    (void)arg;
+    for(;;) {
+        tx_cmd_t cmd;
+        if(xQueueReceive(s_tx_cmd_queue, &cmd, portMAX_DELAY) != pdTRUE) continue;
+
+        portENTER_CRITICAL(&s_tx_id_lock);
+        s_tx_current_id = cmd.id;
+        portEXIT_CRITICAL(&s_tx_id_lock);
+
+        HwIrTxResult result = HW_IR_TX_DONE;
+
+        if(worker_should_cancel(cmd.id)) {
+            result = HW_IR_TX_CANCELLED;
+        } else {
+            uint8_t reps = cmd.repeat ? cmd.repeat : 1;
+            if(reps > HW_IR_TX_MAX_REPEAT) reps = HW_IR_TX_MAX_REPEAT;
+            for(uint8_t i = 0; i < reps; i++) {
+                if(worker_should_cancel(cmd.id)) { result = HW_IR_TX_CANCELLED; break; }
+                esp_err_t err = hw_ir_send_raw(cmd.timings, cmd.n_timings, cmd.carrier_hz);
+                if(err != ESP_OK) { result = HW_IR_TX_ERROR; break; }
+                if(i + 1 < reps && cmd.gap_ms) {
+                    /* Poll cancel during the gap so cancellation is bounded. */
+                    uint32_t left = cmd.gap_ms;
+                    while(left > 0 && !worker_should_cancel(cmd.id)) {
+                        uint32_t chunk = left > 20 ? 20 : left;
+                        vTaskDelay(pdMS_TO_TICKS(chunk));
+                        left -= chunk;
+                    }
+                    if(worker_should_cancel(cmd.id)) { result = HW_IR_TX_CANCELLED; break; }
+                }
+            }
+        }
+
+        portENTER_CRITICAL(&s_tx_id_lock);
+        s_tx_current_id = 0;
+        portEXIT_CRITICAL(&s_tx_id_lock);
+
+        tx_cmd_finish(&cmd, result);
+
+        if(uxQueueMessagesWaiting(s_tx_cmd_queue) == 0) {
+            s_tx_cancel_all = false;
+            if(s_tx_idle_sem) xSemaphoreGive(s_tx_idle_sem);
+        }
+    }
+}
+
+static void tx_engine_start_once(void)
+{
+    if(s_tx_cmd_queue) return;
+    s_tx_cmd_queue = xQueueCreate(HW_IR_TX_QUEUE_DEPTH, sizeof(tx_cmd_t));
+    s_tx_idle_sem  = xSemaphoreCreateBinary();
+    assert(s_tx_cmd_queue && s_tx_idle_sem);
+    BaseType_t ok = xTaskCreatePinnedToCore(tx_worker_fn, "hw_ir_tx",
+                                            HW_IR_TX_WORKER_STACK, NULL,
+                                            HW_IR_TX_WORKER_PRIO, &s_tx_worker,
+                                            HW_IR_TX_WORKER_CORE);
+    assert(ok == pdPASS);
+}
+
+uint32_t hw_ir_tx_submit(const HwIrTxRequest *req)
+{
+    if(!s_inited || !req)                        return 0;
+    if(!req->timings || req->n_timings == 0)     return 0;
+    if(req->n_timings > IR_MAX_TIMINGS)           return 0;
+
+    tx_engine_start_once();
+
+    tx_cmd_t cmd = {0};
+    cmd.timings = malloc(req->n_timings * sizeof(uint16_t));
+    if(!cmd.timings) return 0;
+    memcpy(cmd.timings, req->timings, req->n_timings * sizeof(uint16_t));
+    cmd.n_timings  = req->n_timings;
+    cmd.carrier_hz = req->carrier_hz ? req->carrier_hz : 38000;
+    cmd.repeat     = req->repeat ? req->repeat : 1;
+    cmd.gap_ms     = req->gap_ms;
+    cmd.on_done    = req->on_done;
+    cmd.ctx        = req->ctx;
+
+    portENTER_CRITICAL(&s_tx_id_lock);
+    cmd.id = s_tx_next_id++;
+    if(s_tx_next_id == 0) s_tx_next_id = 1;
+    portEXIT_CRITICAL(&s_tx_id_lock);
+
+    /* Drop any stale idle ack before queuing -- caller can wait afterwards. */
+    xSemaphoreTake(s_tx_idle_sem, 0);
+
+    if(xQueueSend(s_tx_cmd_queue, &cmd, 0) != pdTRUE) {
+        free(cmd.timings);
+        return 0;
+    }
+    return cmd.id;
+}
+
+void hw_ir_tx_cancel(uint32_t id)
+{
+    if(id == 0) return;
+    portENTER_CRITICAL(&s_tx_id_lock);
+    s_tx_cancel_id = id;
+    portEXIT_CRITICAL(&s_tx_id_lock);
+}
+
+void hw_ir_tx_cancel_all(uint32_t timeout_ms)
+{
+    if(!s_tx_cmd_queue) return;
+    s_tx_cancel_all = true;
+
+    /* Drain queued (not-yet-running) commands and fire their on_done with
+     * CANCELLED so callers can balance their state. */
+    tx_cmd_t cmd;
+    while(xQueueReceive(s_tx_cmd_queue, &cmd, 0) == pdTRUE) {
+        tx_cmd_finish(&cmd, HW_IR_TX_CANCELLED);
+    }
+
+    /* Wait for the in-flight burst (if any) to finish at the next gap. */
+    if(s_tx_idle_sem) {
+        if(s_tx_current_id != 0) {
+            xSemaphoreTake(s_tx_idle_sem,
+                           timeout_ms ? pdMS_TO_TICKS(timeout_ms) : 0);
+        }
+    }
+    s_tx_cancel_all = false;
+}
+
 /* RX state */
 static rmt_channel_handle_t  s_rx_chan;
 static rmt_symbol_word_t    *s_rx_buf;       /* IDF fills caller-provided buffer */
