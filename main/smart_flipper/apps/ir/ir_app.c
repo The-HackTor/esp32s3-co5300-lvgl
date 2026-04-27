@@ -6,6 +6,7 @@
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
 #include "store/ir_store.h"
+#include "store/ir_settings.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/universal_db/ir_universal_index.h"
 
@@ -19,7 +20,6 @@
 
 #define RX_DRAIN_INTERVAL_MS 30
 #define RX_QUEUE_DEPTH 2
-#define RX_TX_ECHO_GUARD_US (100 * 1000)  /* drop RX frames within 100ms of TX */
 
 static IrApp app;
 
@@ -78,7 +78,7 @@ static void rx_drain_timer_cb(lv_timer_t *t)
     if(xQueueReceive(app.rx_queue, &frame, 0) != pdTRUE) return;
     if(!frame) return;
 
-    if(hw_ir_tx_was_recent_us(RX_TX_ECHO_GUARD_US)) {
+    if(hw_ir_tx_was_recent_us((int64_t)ir_settings()->tx_echo_ms * 1000)) {
         free(frame);
         return;
     }
@@ -187,6 +187,7 @@ static void on_init(void)
     app.rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(IrRxFrame *));
     ir_store_init();
     macro_store_init();
+    ir_settings_load();
     ir_universal_db_init();
     ir_universal_index_init();
 }

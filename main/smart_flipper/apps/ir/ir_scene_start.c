@@ -20,6 +20,7 @@
 #define IDX_HISTORY        3
 #define IDX_MACROS         4
 #define IDX_AC             5
+#define IDX_SETTINGS       6
 
 static IrRecent s_recents[IR_RECENTS_MAX];
 static size_t   s_recent_count;
@@ -85,6 +86,9 @@ static void submenu_cb(void *context, uint32_t index)
     case IDX_AC:
         scene_manager_next_scene(&app->scene_mgr, ir_SCENE_AcBrand);
         break;
+    case IDX_SETTINGS:
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Settings);
+        break;
     }
 }
 
@@ -127,6 +131,8 @@ void ir_scene_start_on_enter(void *ctx)
                           COLOR_YELLOW, IDX_MACROS, submenu_cb, app);
     view_submenu_add_item(app->submenu, LV_SYMBOL_REFRESH, "AC Remote",
                           COLOR_CYAN, IDX_AC, submenu_cb, app);
+    view_submenu_add_item(app->submenu, LV_SYMBOL_SETTINGS, "Settings",
+                          COLOR_DIM, IDX_SETTINGS, submenu_cb, app);
 
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_Start));

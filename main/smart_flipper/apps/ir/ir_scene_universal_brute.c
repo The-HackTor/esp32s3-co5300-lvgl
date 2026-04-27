@@ -4,6 +4,7 @@
 #include "ui/styles.h"
 #include "ui/transition.h"
 #include "store/ir_store.h"
+#include "store/ir_settings.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/brute/ir_brute.h"
 #include "hw/hw_ir.h"
@@ -92,6 +93,46 @@ static void on_worked(void *ctx)
     }
     app->univ_save_valid = true;
 
+    if(ir_settings()->auto_save_worked) {
+        char auto_name[IR_REMOTE_NAME_MAX];
+        IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
+        const char *btn_label = ir_universal_db_button_name(cat,
+                                                            (size_t)app->univ_button_idx);
+        snprintf(auto_name, sizeof(auto_name), "%.16s_%s",
+                 app->univ_save_button.name,
+                 btn_label ? btn_label : "Found");
+        for(char *p = auto_name; *p; p++) {
+            if(*p == ' ' || *p == '/' || *p == '\\') *p = '_';
+        }
+
+        IrRemote rem = {0};
+        if(ir_remote_init(&rem, auto_name) == ESP_OK) {
+            IrButton clone = {0};
+            if(ir_button_dup(&clone, &app->univ_save_button) == ESP_OK) {
+                if(btn_label) snprintf(clone.name, sizeof(clone.name), "%s", btn_label);
+                ir_remote_append_button(&rem, &clone);
+                ir_button_free(&clone);
+            }
+            ir_remote_save(&rem);
+            ir_remote_free(&rem);
+
+            view_popup_reset(app->popup);
+            view_popup_set_icon(app->popup, LV_SYMBOL_OK, COLOR_GREEN);
+            view_popup_set_header(app->popup, "Saved", COLOR_GREEN);
+            view_popup_set_text(app->popup, auto_name);
+            view_popup_set_timeout(app->popup, 1000, NULL, NULL);
+            view_dispatcher_switch_to_view_animated(app->view_dispatcher,
+                                                    IrViewPopup,
+                                                    (uint32_t)TransitionFadeIn, 120);
+        }
+
+        ir_button_free(&app->univ_save_button);
+        app->univ_save_valid = false;
+        scene_manager_search_and_switch_to_previous_scene(&app->scene_mgr,
+                                                          ir_SCENE_UniversalCategory);
+        return;
+    }
+
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_UniversalSave);
 }
 
@@ -152,9 +193,11 @@ void ir_scene_universal_brute_on_enter(void *ctx)
         app->univ_save_valid = false;
     }
 
+    const IrSettings *st = ir_settings();
     const IrRunnerConfig cfg = {
         .total_steps    = total,
-        .inter_step_ms  = (cat == IR_UNIVERSAL_CAT_AC) ? BRUTE_AC_GAP_MS : BRUTE_GAP_MS,
+        .inter_step_ms  = (cat == IR_UNIVERSAL_CAT_AC) ? st->brute_ac_gap_ms
+                                                       : st->brute_gap_ms,
         .step_fn        = brute_step,
         .on_event       = brute_evt,
         .user_data      = app,
