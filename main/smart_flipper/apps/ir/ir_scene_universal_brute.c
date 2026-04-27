@@ -68,7 +68,8 @@ static void brute_submit_next(IrApp *app)
     size_t    n = 0;
     uint32_t  hz = 38000;
     uint8_t   mr = 1;
-    esp_err_t err = ir_brute_step_encode(&s_st.bc, s_st.cur, &t, &n, &hz, &mr);
+    uint16_t  sil_ms = BRUTE_INTER_FRAME_MS;
+    esp_err_t err = ir_brute_step_encode(&s_st.bc, s_st.cur, &t, &n, &hz, &mr, &sil_ms);
     if(err != ESP_OK || !t || n == 0) {
         if(t) free(t);
         ESP_LOGW(TAG, "encode step %u: %s", (unsigned)s_st.cur, esp_err_to_name(err));
@@ -89,7 +90,7 @@ static void brute_submit_next(IrApp *app)
         .n_timings  = n,
         .carrier_hz = hz,
         .repeat     = reps,
-        .gap_ms     = BRUTE_INTER_FRAME_MS,
+        .gap_ms     = sil_ms,                 /* per-protocol Flipper-native */
         .on_done    = on_tx_done,
         .ctx        = app,
     };

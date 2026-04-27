@@ -25,14 +25,16 @@ size_t    ir_brute_total(const IrBruteContext *bc);
 bool      ir_brute_step_info(const IrBruteContext *bc, size_t idx, IrBruteStepInfo *out);
 
 /* Encode-only: returns a heap-owned timings buffer the caller must free.
- * Also returns the protocol's min repeat count (Flipper-baked: NEC=1,
- * SIRC=3, Pioneer=2, RC5/6=1, Samsung=1, etc.) so the brute scene can
- * fire MAX(min_repeat, settings.brute_repeat) frames per code.
- * For RAW / brand encoders, min_repeat is 1.
+ * Also returns:
+ *   out_min_repeat -- protocol's min repeat (NEC=1, SIRC=3, Pioneer=2, ...)
+ *   out_silence_ms -- protocol's native inter-frame silence_time. Flipper
+ *     uses this between frame repeats (NEC=110, SIRC=10, Samsung=145,
+ *     RC5/6=27, Pioneer=26, Kaseikyo=130, RCA=8). RAW/brand fall back to 110.
  * Use this with hw_ir_tx_submit so the LVGL task never blocks on encode+TX. */
 esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
                                uint16_t **out_timings, size_t *out_n,
-                               uint32_t *out_freq_hz, uint8_t *out_min_repeat);
+                               uint32_t *out_freq_hz, uint8_t *out_min_repeat,
+                               uint16_t *out_silence_ms);
 
 /* Sync convenience: encode + fire `repeat` times via hw_ir_send_raw. Kept for
  * legacy callers; new code should prefer encode + hw_ir_tx_submit. */

@@ -141,13 +141,37 @@ static esp_err_t encode_brand_to_buf(size_t brand_idx,
     return br->encode(&s_ac_default, out_t, out_n, out_hz);
 }
 
+/* Per-protocol inter-frame silence_time (ms). Pulled from
+ * lib/infrared/encoder_decoder/<proto>/infrared_protocol_<proto>_i.h. */
+static uint16_t silence_ms_for_proto(const char *proto)
+{
+    if(!proto) return 110;
+    if(strcmp(proto, "NEC") == 0)       return 110;
+    if(strcmp(proto, "NECext") == 0)    return 110;
+    if(strcmp(proto, "NEC42") == 0)     return 110;
+    if(strcmp(proto, "NEC42ext") == 0)  return 110;
+    if(strcmp(proto, "SIRC") == 0)      return 10;
+    if(strcmp(proto, "SIRC15") == 0)    return 10;
+    if(strcmp(proto, "SIRC20") == 0)    return 10;
+    if(strcmp(proto, "Samsung32") == 0) return 145;
+    if(strcmp(proto, "RC5") == 0)       return 27;
+    if(strcmp(proto, "RC5X") == 0)      return 27;
+    if(strcmp(proto, "RC6") == 0)       return 27;
+    if(strcmp(proto, "Pioneer") == 0)   return 26;
+    if(strcmp(proto, "Kaseikyo") == 0)  return 130;
+    if(strcmp(proto, "RCA") == 0)       return 8;
+    return 110;
+}
+
 esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
                                uint16_t **out_timings, size_t *out_n,
-                               uint32_t *out_freq_hz, uint8_t *out_min_repeat)
+                               uint32_t *out_freq_hz, uint8_t *out_min_repeat,
+                               uint16_t *out_silence_ms)
 {
     if(!bc || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
     *out_timings = NULL; *out_n = 0; *out_freq_hz = 38000;
     if(out_min_repeat) *out_min_repeat = 1;
+    if(out_silence_ms) *out_silence_ms = 110;
 
     uint16_t *t = NULL;
     size_t    n = 0;
@@ -218,6 +242,9 @@ esp_err_t ir_brute_step_encode(const IrBruteContext *bc, size_t idx,
             }
         }
     }
+    if(out_silence_ms) {
+        *out_silence_ms = (is_brand || !proto) ? 110 : silence_ms_for_proto(proto);
+    }
     return ESP_OK;
 }
 
@@ -227,7 +254,8 @@ esp_err_t ir_brute_step_send(const IrBruteContext *bc, size_t idx, uint8_t repea
     size_t    n = 0;
     uint32_t  hz = 38000;
     uint8_t   mr = 1;
-    esp_err_t err = ir_brute_step_encode(bc, idx, &t, &n, &hz, &mr);
+    uint16_t  sil = 110;
+    esp_err_t err = ir_brute_step_encode(bc, idx, &t, &n, &hz, &mr, &sil);
     if(err != ESP_OK) return err;
     uint8_t reps = repeat > mr ? repeat : mr;
     err = fire_n(t, n, hz, reps);
