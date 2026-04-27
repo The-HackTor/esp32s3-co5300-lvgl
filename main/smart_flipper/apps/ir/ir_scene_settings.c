@@ -4,8 +4,10 @@
 #include "ui/transition.h"
 #include "store/ir_settings.h"
 #include "hw/hw_ir.h"
+#include "lib/infrared/ir_codecs.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #define IDX_BRUTE_GAP    0
 #define IDX_BRUTE_AC_GAP 1
@@ -14,6 +16,7 @@
 #define IDX_HISTORY_MAX  4
 #define IDX_AUTO_SAVE    5
 #define IDX_TX_INVERT    6
+#define IDX_TX_TEST      7
 
 static void render(IrApp *app);
 
@@ -77,6 +80,39 @@ static void item_tapped(void *ctx, uint32_t index)
         ir_settings_set_tx_invert(!cur->tx_invert);
         hw_ir_set_invert(ir_settings()->tx_invert);
         break;
+    case IDX_TX_TEST: {
+        /* Bench diagnostic: fire NEC(addr=0x04, cmd=0x08) ten times with
+         * 110ms gaps. Phone camera should show IR pulsing; Flipper Zero in
+         * Learn mode should decode it as "NEC 04 08". Isolates "no IR
+         * coming out" vs "IR present but TV ignores it". */
+        IrDecoded msg = { .source = IR_DECODED_FLIPPER, .address = 0x04, .command = 0x08 };
+        snprintf(msg.protocol, sizeof(msg.protocol), "NEC");
+        uint16_t *t = NULL;
+        size_t    n = 0;
+        uint32_t  hz = 38000;
+        if(ir_codecs_encode(&msg, &t, &n, &hz) == ESP_OK && t && n) {
+            HwIrTxRequest req = {
+                .timings    = t,
+                .n_timings  = n,
+                .carrier_hz = hz,
+                .repeat     = 10,
+                .gap_ms     = 110,
+                .on_done    = NULL,
+                .ctx        = NULL,
+            };
+            hw_ir_tx_submit(&req);
+        }
+        if(t) free(t);
+        view_popup_reset(app->popup);
+        view_popup_set_icon(app->popup, LV_SYMBOL_OK, COLOR_GREEN);
+        view_popup_set_header(app->popup, "TX Test Firing", COLOR_GREEN);
+        view_popup_set_text(app->popup, "NEC 04/08 x10");
+        view_popup_set_timeout(app->popup, 1500, NULL, NULL);
+        view_dispatcher_switch_to_view_animated(app->view_dispatcher,
+                                                IrViewPopup,
+                                                (uint32_t)TransitionFadeIn, 120);
+        return;
+    }
     default:               return;
     }
     render(app);
@@ -121,6 +157,9 @@ static void render(IrApp *app)
     view_submenu_add_item(app->submenu, LV_SYMBOL_LOOP, buf,
                           s->tx_invert ? COLOR_ORANGE : COLOR_DIM,
                           IDX_TX_INVERT, item_tapped, app);
+
+    view_submenu_add_item(app->submenu, LV_SYMBOL_PLAY, "TX Self-Test (NEC 04/08)",
+                          COLOR_CYAN, IDX_TX_TEST, item_tapped, app);
 }
 
 void ir_scene_settings_on_enter(void *ctx)
