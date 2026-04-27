@@ -118,6 +118,10 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     uint16_t *buf = malloc(cap * sizeof(uint16_t));
     if(!buf) { infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
 
+    /* Flipper's encoder emits a leading SPACE (silence_time, level=false)
+     * before the first MARK. hw_ir_send_raw expects buf[0]=mark, so drop
+     * timings until we see the first level=true sample. */
+    bool started = false;
     for(;;) {
         uint32_t duration = 0;
         bool     level    = false;
@@ -126,6 +130,13 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
             free(buf);
             infrared_free_encoder(handler);
             return ESP_FAIL;
+        }
+        if(!started) {
+            if(!level) {
+                if(s == InfraredStatusDone) break;
+                continue;
+            }
+            started = true;
         }
         if(n == cap) {
             size_t new_cap = cap * 2;
