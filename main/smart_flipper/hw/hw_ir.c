@@ -6,6 +6,7 @@
 #include "freertos/semphr.h"
 #include "driver/rmt_tx.h"
 #include "driver/rmt_rx.h"
+#include "driver/gpio.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -288,7 +289,14 @@ static esp_err_t build_tx_channel(bool invert)
         .flags.invert_out  = invert,
         .flags.with_dma    = false,
     };
-    return rmt_new_tx_channel(&tx_cfg, &s_tx_chan);
+    esp_err_t err = rmt_new_tx_channel(&tx_cfg, &s_tx_chan);
+    if(err != ESP_OK) return err;
+    /* Crisper gate transitions at 38 kHz on the DMN2058UW (Cgs ~30pF
+     * driven through 150R). Default cap is ~20mA; CAP_3 ~40mA halves
+     * the rise/fall constant and improves carrier square-wave fidelity
+     * at the LED. */
+    gpio_set_drive_capability(IR_TX_GPIO, GPIO_DRIVE_CAP_3);
+    return ESP_OK;
 }
 
 esp_err_t hw_ir_set_invert(bool invert)
