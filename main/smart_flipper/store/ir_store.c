@@ -635,3 +635,50 @@ esp_err_t ir_history_clear(void)
     if(unlink(IR_HISTORY_PATH) != 0) return ESP_FAIL;
     return ESP_OK;
 }
+
+esp_err_t ir_remote_summary(const char *path, IrRemoteSummary *out)
+{
+    if(!path || !out) return ESP_ERR_INVALID_ARG;
+    out->button_count = 0;
+    out->first_protocol[0] = '\0';
+
+    FILE *fp = fopen(path, "r");
+    if(!fp) return ESP_FAIL;
+
+    char line[256];
+    bool first_proto_set = false;
+    while(fgets(line, sizeof(line), fp)) {
+        if(strncmp(line, "name:", 5) == 0) {
+            out->button_count++;
+        } else if(!first_proto_set && strncmp(line, "protocol:", 9) == 0) {
+            const char *p = line + 9;
+            while(*p == ' ' || *p == '\t') p++;
+            size_t i = 0;
+            while(*p && *p != '\r' && *p != '\n' &&
+                  i + 1 < sizeof(out->first_protocol)) {
+                out->first_protocol[i++] = *p++;
+            }
+            out->first_protocol[i] = '\0';
+            first_proto_set = true;
+        }
+    }
+    fclose(fp);
+    return ESP_OK;
+}
+
+esp_err_t ir_remote_duplicate(const IrRemote *src, const char *new_name)
+{
+    if(!src || !new_name || new_name[0] == '\0') return ESP_ERR_INVALID_ARG;
+
+    IrRemote dst = {0};
+    esp_err_t err = ir_remote_init(&dst, new_name);
+    if(err != ESP_OK) return err;
+
+    for(size_t i = 0; i < src->button_count; i++) {
+        err = ir_remote_append_button(&dst, &src->buttons[i]);
+        if(err != ESP_OK) { ir_remote_free(&dst); return err; }
+    }
+    err = ir_remote_save(&dst);
+    ir_remote_free(&dst);
+    return err;
+}

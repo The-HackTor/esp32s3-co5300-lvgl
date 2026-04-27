@@ -25,6 +25,13 @@ void view_submenu_add_item_holdable(ViewSubmenu *submenu, const char *icon, cons
                                     ViewSubmenuPressCb on_press,
                                     ViewSubmenuReleaseCb on_release,
                                     void *ctx);
+void view_submenu_add_item_ex(ViewSubmenu *submenu,
+                              const char *icon, const char *label,
+                              const char *subtitle,
+                              lv_color_t color, uint32_t index,
+                              ViewSubmenuCallback tap_cb,
+                              ViewSubmenuCallback long_press_cb,
+                              void *ctx);
 void view_submenu_set_selected_item(ViewSubmenu *submenu, uint32_t index);
 
 #endif

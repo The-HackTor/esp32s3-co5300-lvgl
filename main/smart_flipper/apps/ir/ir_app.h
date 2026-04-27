@@ -64,6 +64,8 @@ typedef struct {
     bool            univ_save_valid;
     void           *univ_runner;
 
+    char            remote_action_target[IR_REMOTE_NAME_MAX];
+
     QueueHandle_t   rx_queue;
     lv_timer_t     *rx_drain_timer;
     IrDecoded       last_decoded;

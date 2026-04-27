@@ -74,6 +74,14 @@ esp_err_t ir_store_remote_path(char *out, size_t out_len, const char *name);
 esp_err_t ir_store_list_remotes(char (*out_names)[IR_REMOTE_NAME_MAX],
                                 size_t cap, size_t *out_count);
 
+typedef struct {
+    size_t button_count;
+    char   first_protocol[IR_PROTOCOL_NAME_MAX];
+} IrRemoteSummary;
+
+esp_err_t ir_remote_summary(const char *path, IrRemoteSummary *out);
+esp_err_t ir_remote_duplicate(const IrRemote *src, const char *new_name);
+
 #define IR_HISTORY_PATH        "/sdcard/ir/history.log"
 #define IR_HISTORY_MAX_ENTRIES 64
 

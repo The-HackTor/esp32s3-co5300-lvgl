@@ -4,6 +4,7 @@
 #include "ui/transition.h"
 #include "store/ir_store.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define REMOTE_LIST_MAX 16
@@ -33,6 +34,15 @@ static void remote_selected(void *ctx, uint32_t index)
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Remote);
 }
 
+static void remote_long_pressed(void *ctx, uint32_t index)
+{
+    IrApp *app = ctx;
+    if(index >= list_count) return;
+    snprintf(app->remote_action_target, sizeof(app->remote_action_target),
+             "%s", list_buf[index]);
+    scene_manager_next_scene(&app->scene_mgr, ir_SCENE_RemoteActions);
+}
+
 void ir_scene_remote_list_on_enter(void *ctx)
 {
     IrApp *app = ctx;
@@ -59,8 +69,25 @@ void ir_scene_remote_list_on_enter(void *ctx)
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, "Saved Remotes", COLOR_CYAN);
     for(uint32_t i = 0; i < list_count; i++) {
-        view_submenu_add_item(app->submenu, LV_SYMBOL_FILE, list_buf[i],
-                              COLOR_CYAN, i, remote_selected, app);
+        char path[IR_REMOTE_PATH_MAX];
+        char subtitle[40];
+        subtitle[0] = '\0';
+        if(ir_store_remote_path(path, sizeof(path), list_buf[i]) == ESP_OK) {
+            IrRemoteSummary sum = {0};
+            if(ir_remote_summary(path, &sum) == ESP_OK) {
+                if(sum.first_protocol[0]) {
+                    snprintf(subtitle, sizeof(subtitle), "%u btn  -  %s",
+                             (unsigned)sum.button_count, sum.first_protocol);
+                } else {
+                    snprintf(subtitle, sizeof(subtitle), "%u btn",
+                             (unsigned)sum.button_count);
+                }
+            }
+        }
+        view_submenu_add_item_ex(app->submenu, LV_SYMBOL_FILE, list_buf[i],
+                                 subtitle[0] ? subtitle : NULL,
+                                 COLOR_CYAN, i,
+                                 remote_selected, remote_long_pressed, app);
     }
     view_submenu_set_selected_item(app->submenu,
         scene_manager_get_scene_state(&app->scene_mgr, ir_SCENE_RemoteList));

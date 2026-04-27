@@ -6,6 +6,7 @@
 
 typedef struct {
     ViewSubmenuCallback   cb;
+    ViewSubmenuCallback   long_press_cb;
     ViewSubmenuPressCb    on_press;
     ViewSubmenuReleaseCb  on_release;
     void                 *ctx;
@@ -51,6 +52,12 @@ static void item_clicked(lv_event_t *e)
 {
     ItemCtx *ctx = lv_event_get_user_data(e);
     if(ctx && ctx->cb) ctx->cb(ctx->ctx, ctx->index);
+}
+
+static void item_long_pressed(lv_event_t *e)
+{
+    ItemCtx *ctx = lv_event_get_user_data(e);
+    if(ctx && ctx->long_press_cb) ctx->long_press_cb(ctx->ctx, ctx->index);
 }
 
 static void item_pressed(lv_event_t *e)
@@ -193,11 +200,12 @@ static ItemCtx *add_row(ViewSubmenu *submenu, const char *icon, const char *labe
     }
 
     ItemCtx *ictx = &submenu->items[submenu->item_count];
-    ictx->cb         = NULL;
-    ictx->on_press   = NULL;
-    ictx->on_release = NULL;
-    ictx->ctx        = ctx;
-    ictx->index      = index;
+    ictx->cb            = NULL;
+    ictx->long_press_cb = NULL;
+    ictx->on_press      = NULL;
+    ictx->on_release    = NULL;
+    ictx->ctx           = ctx;
+    ictx->index         = index;
 
     if(submenu->item_count > 0) {
         lv_obj_t *line = lv_obj_create(submenu->list);
@@ -263,6 +271,47 @@ void view_submenu_add_item_holdable(ViewSubmenu *submenu, const char *icon, cons
     lv_obj_add_event_cb(btn, item_pressed,  LV_EVENT_PRESSED,    ictx);
     lv_obj_add_event_cb(btn, item_released, LV_EVENT_RELEASED,   ictx);
     lv_obj_add_event_cb(btn, item_released, LV_EVENT_PRESS_LOST, ictx);
+
+    lv_obj_update_layout(submenu->list);
+    apply_barrel(submenu->list);
+}
+
+void view_submenu_add_item_ex(ViewSubmenu *submenu,
+                              const char *icon, const char *label,
+                              const char *subtitle,
+                              lv_color_t color, uint32_t index,
+                              ViewSubmenuCallback tap_cb,
+                              ViewSubmenuCallback long_press_cb,
+                              void *ctx)
+{
+    lv_obj_t *btn = NULL;
+    ItemCtx *ictx = add_row(submenu, icon, label, color, index, ctx, &btn);
+    if(!ictx) return;
+    ictx->cb            = tap_cb;
+    ictx->long_press_cb = long_press_cb;
+
+    if(subtitle && subtitle[0] && btn) {
+        lv_obj_set_height(btn, MENU_ITEM_HEIGHT + 24);
+        /* Existing label is centered vertically; pull it up and add a
+         * smaller subtitle below. */
+        uint32_t cnt = lv_obj_get_child_count(btn);
+        if(cnt >= 2) {
+            lv_obj_t *main_lbl = lv_obj_get_child(btn, cnt - 1);
+            lv_obj_align(main_lbl, LV_ALIGN_LEFT_MID, 100, -10);
+            lv_obj_t *sub = lv_label_create(btn);
+            lv_label_set_text(sub, subtitle);
+            lv_obj_set_style_text_color(sub, COLOR_SECONDARY, 0);
+            lv_obj_set_style_text_font(sub, FONT_BODY, 0);
+            lv_obj_align(sub, LV_ALIGN_LEFT_MID, 100, 16);
+        }
+    }
+
+    if(tap_cb) {
+        lv_obj_add_event_cb(btn, item_clicked, LV_EVENT_CLICKED, ictx);
+    }
+    if(long_press_cb) {
+        lv_obj_add_event_cb(btn, item_long_pressed, LV_EVENT_LONG_PRESSED, ictx);
+    }
 
     lv_obj_update_layout(submenu->list);
     apply_barrel(submenu->list);
