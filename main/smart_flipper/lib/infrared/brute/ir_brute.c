@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BRUTE_INTER_FRAME_MS  40
+#define BRUTE_INTER_FRAME_MS  110
 
 static const char *BRUTE_TAG = "ir_brute";
 static volatile bool s_log_next;
