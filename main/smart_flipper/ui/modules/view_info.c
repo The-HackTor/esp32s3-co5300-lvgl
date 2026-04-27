@@ -2,6 +2,7 @@
 #include "ui/styles.h"
 #include "ui/circular_layout.h"
 #include "ui/widgets/back_button.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 typedef struct {
@@ -14,6 +15,8 @@ struct ViewInfo {
     lv_obj_t *header_bar;
     lv_obj_t *title_lbl;
     lv_obj_t *scroll;     /* Scrollable content area */
+    lv_obj_t *progress_bar;
+    lv_obj_t *progress_lbl;
     BtnCtx    buttons[VIEW_INFO_MAX_BUTTONS];
     uint32_t  btn_count;
 };
@@ -32,7 +35,9 @@ static void info_reset(void *m)
     ViewInfo *info = m;
     lv_obj_clean(info->scroll);
     lv_label_set_text(info->title_lbl, "");
-    info->btn_count = 0;
+    info->btn_count    = 0;
+    info->progress_bar = NULL;
+    info->progress_lbl = NULL;
 }
 
 static void info_destroy(void *m)
@@ -218,6 +223,55 @@ void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
         lv_obj_set_style_border_width(bar, 0, 0);
         lv_obj_set_style_pad_all(bar, 0, 0);
         lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+void view_info_add_progress(ViewInfo *info, lv_color_t color)
+{
+    lv_obj_t *card = lv_obj_create(info->scroll);
+    lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(card, 0, 0);
+    lv_obj_set_style_pad_all(card, 4, 0);
+    lv_obj_set_layout(card, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(card, 6, 0);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *bar = lv_bar_create(card);
+    lv_obj_set_size(bar, LV_PCT(100), 14);
+    lv_obj_set_style_bg_color(bar, COLOR_DIM, 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(bar, 7, 0);
+    lv_obj_set_style_bg_color(bar, color, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(bar, 7, LV_PART_INDICATOR);
+    lv_bar_set_range(bar, 0, 100);
+    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+    info->progress_bar = bar;
+
+    lv_obj_t *lbl = lv_label_create(card);
+    lv_label_set_text(lbl, "0 / 0");
+    lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
+    lv_obj_set_style_text_color(lbl, COLOR_SECONDARY, 0);
+    info->progress_lbl = lbl;
+}
+
+void view_info_set_progress(ViewInfo *info, size_t cur, size_t total)
+{
+    if(!info) return;
+    if(info->progress_bar) {
+        int32_t pct = total ? (int32_t)((uint64_t)cur * 100 / total) : 0;
+        if(pct < 0) pct = 0;
+        if(pct > 100) pct = 100;
+        lv_bar_set_value(info->progress_bar, pct, LV_ANIM_OFF);
+    }
+    if(info->progress_lbl) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%u / %u", (unsigned)cur, (unsigned)total);
+        lv_label_set_text(info->progress_lbl, buf);
     }
 }
 

@@ -26,6 +26,8 @@ void view_info_add_text_block(ViewInfo *info, const char *text,
 void view_info_add_pill(ViewInfo *info, const char *text, lv_color_t color);
 void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
                             size_t n_timings, lv_color_t color);
+void view_info_add_progress(ViewInfo *info, lv_color_t color);
+void view_info_set_progress(ViewInfo *info, size_t cur, size_t total);
 void view_info_add_button(ViewInfo *info, const char *text, lv_color_t color,
                           ViewInfoButtonCb cb, void *ctx);
 void view_info_add_button_row(ViewInfo *info,
