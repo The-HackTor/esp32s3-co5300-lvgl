@@ -89,16 +89,24 @@ static void tx_cmd_finish(tx_cmd_t *c, HwIrTxResult result)
     tx_cmd_free(c);
 }
 
+/* Pure check: must NOT mutate s_tx_cancel_id. The cancel id has to remain
+ * armed for the lifetime of the burst -- if we cleared it on the first
+ * positive check inside the gap-poll, a follow-up check after the poll
+ * (or on the next for-iteration) would read 0 and let the worker keep
+ * firing past the requested cancel point. */
 static bool worker_should_cancel(uint32_t id)
 {
     if(s_tx_cancel_all) return true;
-    if(s_tx_cancel_id && s_tx_cancel_id == id) {
-        portENTER_CRITICAL(&s_tx_id_lock);
-        if(s_tx_cancel_id == id) s_tx_cancel_id = 0;
-        portEXIT_CRITICAL(&s_tx_id_lock);
-        return true;
-    }
+    if(s_tx_cancel_id && s_tx_cancel_id == id) return true;
     return false;
+}
+
+static void worker_consume_cancel_id(uint32_t id)
+{
+    if(s_tx_cancel_id != id) return;
+    portENTER_CRITICAL(&s_tx_id_lock);
+    if(s_tx_cancel_id == id) s_tx_cancel_id = 0;
+    portEXIT_CRITICAL(&s_tx_id_lock);
 }
 
 static void tx_worker_fn(void *arg)
@@ -139,6 +147,10 @@ static void tx_worker_fn(void *arg)
         portENTER_CRITICAL(&s_tx_id_lock);
         s_tx_current_id = 0;
         portEXIT_CRITICAL(&s_tx_id_lock);
+
+        /* Now that the burst is finished, consume any matching pending
+         * cancel id so a future submit reusing that id isn't auto-killed. */
+        worker_consume_cancel_id(cmd.id);
 
         tx_cmd_finish(&cmd, result);
 
