@@ -682,3 +682,108 @@ esp_err_t ir_remote_duplicate(const IrRemote *src, const char *new_name)
     ir_remote_free(&dst);
     return err;
 }
+
+#define AC_STATES_MAX 32
+typedef struct {
+    char    brand[32];
+    uint8_t power;
+    uint8_t mode;
+    uint8_t temp_c;
+    uint8_t fan;
+    uint8_t swing;
+} AcStateRow;
+
+static int strcasecmp_local(const char *a, const char *b)
+{
+    while(*a && *b) {
+        char ca = *a, cb = *b;
+        if(ca >= 'A' && ca <= 'Z') ca = (char)(ca + 32);
+        if(cb >= 'A' && cb <= 'Z') cb = (char)(cb + 32);
+        if(ca != cb) return ca - cb;
+        a++; b++;
+    }
+    return *a - *b;
+}
+
+static size_t ac_states_read(AcStateRow *rows, size_t cap)
+{
+    FILE *fp = fopen(IR_AC_STATES_PATH, "r");
+    if(!fp) return 0;
+    char line[128];
+    size_t n = 0;
+    while(n < cap && fgets(line, sizeof(line), fp)) {
+        AcStateRow *r = &rows[n];
+        unsigned p, md, t, fn, sw;
+        if(sscanf(line, "%31s %u %u %u %u %u",
+                  r->brand, &p, &md, &t, &fn, &sw) == 6) {
+            r->power  = (uint8_t)p;
+            r->mode   = (uint8_t)md;
+            r->temp_c = (uint8_t)t;
+            r->fan    = (uint8_t)fn;
+            r->swing  = (uint8_t)sw;
+            n++;
+        }
+    }
+    fclose(fp);
+    return n;
+}
+
+static esp_err_t ac_states_write(const AcStateRow *rows, size_t n)
+{
+    FILE *fp = fopen(IR_AC_STATES_PATH, "w");
+    if(!fp) return ESP_FAIL;
+    for(size_t i = 0; i < n; i++) {
+        fprintf(fp, "%s %u %u %u %u %u\n",
+                rows[i].brand, rows[i].power, rows[i].mode,
+                rows[i].temp_c, rows[i].fan, rows[i].swing);
+    }
+    fclose(fp);
+    return ESP_OK;
+}
+
+esp_err_t ir_ac_state_save(const char *brand,
+                           bool power, uint8_t mode, uint8_t temp_c,
+                           uint8_t fan, bool swing)
+{
+    if(!brand || brand[0] == '\0') return ESP_ERR_INVALID_ARG;
+
+    AcStateRow rows[AC_STATES_MAX];
+    size_t n = ac_states_read(rows, AC_STATES_MAX);
+
+    AcStateRow *target = NULL;
+    for(size_t i = 0; i < n; i++) {
+        if(strcasecmp_local(rows[i].brand, brand) == 0) { target = &rows[i]; break; }
+    }
+    if(!target) {
+        if(n >= AC_STATES_MAX) return ESP_ERR_NO_MEM;
+        target = &rows[n++];
+        snprintf(target->brand, sizeof(target->brand), "%s", brand);
+    }
+    target->power  = power ? 1 : 0;
+    target->mode   = mode;
+    target->temp_c = temp_c;
+    target->fan    = fan;
+    target->swing  = swing ? 1 : 0;
+    return ac_states_write(rows, n);
+}
+
+esp_err_t ir_ac_state_load(const char *brand,
+                           bool *out_power, uint8_t *out_mode, uint8_t *out_temp_c,
+                           uint8_t *out_fan, bool *out_swing)
+{
+    if(!brand) return ESP_ERR_INVALID_ARG;
+
+    AcStateRow rows[AC_STATES_MAX];
+    size_t n = ac_states_read(rows, AC_STATES_MAX);
+    for(size_t i = 0; i < n; i++) {
+        if(strcasecmp_local(rows[i].brand, brand) == 0) {
+            if(out_power)  *out_power  = rows[i].power != 0;
+            if(out_mode)   *out_mode   = rows[i].mode;
+            if(out_temp_c) *out_temp_c = rows[i].temp_c;
+            if(out_fan)    *out_fan    = rows[i].fan;
+            if(out_swing)  *out_swing  = rows[i].swing != 0;
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}

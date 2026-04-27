@@ -87,6 +87,8 @@ typedef struct {
 
     AcState         ac_state;
     const AcBrand  *ac_brand;
+    lv_timer_t     *ac_send_timer;
+    bool            ac_dirty;
 
     IrMacro         current_macro;
     int             selected_step_idx;

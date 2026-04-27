@@ -82,6 +82,18 @@ typedef struct {
 esp_err_t ir_remote_summary(const char *path, IrRemoteSummary *out);
 esp_err_t ir_remote_duplicate(const IrRemote *src, const char *new_name);
 
+#define IR_AC_STATES_PATH "/sdcard/ir/ac_states.txt"
+
+/* Persist a single line "<brand> <power> <mode> <temp> <fan> <swing>". On
+ * load, the line for `brand` (case-insensitive match) is returned via
+ * five separate uint8_t values; missing brand → ESP_ERR_NOT_FOUND. */
+esp_err_t ir_ac_state_save(const char *brand,
+                           bool power, uint8_t mode, uint8_t temp_c,
+                           uint8_t fan, bool swing);
+esp_err_t ir_ac_state_load(const char *brand,
+                           bool *out_power, uint8_t *out_mode, uint8_t *out_temp_c,
+                           uint8_t *out_fan, bool *out_swing);
+
 #define IR_HISTORY_PATH        "/sdcard/ir/history.log"
 #define IR_HISTORY_MAX_ENTRIES 64
 
