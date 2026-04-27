@@ -9,7 +9,11 @@ static IrSettings s = {
     .brute_ac_gap_ms  = 250,
     .tx_echo_ms       = 100,
     .history_max      = 64,
-    .brute_repeat     = 3,
+    /* 1 == Flipper-equivalent (Flipper's brute fires exactly one frame per
+     * tick). 3+ risks toggle-on-toggle-off on TVs whose Power button latches
+     * on first frame and treats subsequent frames as held-button repeats.
+     * User can still cycle 1/2/3/5 via Settings if a stubborn TV needs it. */
+    .brute_repeat     = 1,
     .auto_save_worked = false,
     .tx_invert        = false,
 };
