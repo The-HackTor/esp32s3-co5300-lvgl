@@ -132,6 +132,16 @@ static void brute_tick_cb(lv_timer_t *t)
         }
         s_st.cur += 1;
         if(s_st.cur >= s_st.total) s_st.finished = true;
+        /* Periodic progress beacon -- if device silently reboots mid-brute
+         * (latent heap corruption restarts at cur=0), the gap in this log
+         * sequence is visible. Also confirms we're actually reaching codes
+         * past the user's "17% Flipper hits at" threshold (~54). */
+        if((s_st.cur % 10) == 0 || s_st.finished) {
+            ESP_LOGI(TAG, "progress %u/%u (%u%%)%s",
+                     (unsigned)s_st.cur, (unsigned)s_st.total,
+                     (unsigned)((s_st.total ? s_st.cur * 100 / s_st.total : 0)),
+                     s_st.finished ? " DONE" : "");
+        }
     }
 
     if(!s_st.in_flight && !s_st.finished && !s_st.paused) {
