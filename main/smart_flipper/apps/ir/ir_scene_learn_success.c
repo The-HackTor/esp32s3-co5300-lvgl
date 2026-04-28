@@ -7,9 +7,30 @@
 #include "lib/infrared/ir_codecs.h"
 #include "lib/infrared/ir_protocol_color.h"
 #include "lib/infrared/universal_db/ir_universal_index.h"
+#include "lib/infrared/encoder_decoder/infrared.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+
+/* Format an N-bit value: 0x1F (5b) for short widths, 0xABCD (16b) for
+ * wider, full 0x12345678 (32b) for the catch-all. Bits include the actual
+ * mask width per Flipper's spec, so users see the meaningful digits not
+ * the leading zeroes from a 32-bit container. */
+static void format_bits(char *out, size_t cap, uint32_t value, uint8_t bits)
+{
+    if(bits == 0 || bits > 32) bits = 32;
+    int hex_chars = (bits + 3) / 4;
+    uint32_t mask = (bits == 32) ? 0xFFFFFFFFU : ((1U << bits) - 1U);
+    snprintf(out, cap, "0x%0*lX  (%u-bit)", hex_chars,
+             (unsigned long)(value & mask), (unsigned)bits);
+}
+
+static uint32_t sum_durations_us(const uint16_t *t, size_t n)
+{
+    uint32_t s = 0;
+    for(size_t i = 0; i < n; i++) s += t[i];
+    return s;
+}
 
 static IrUniversalCategory s_match_cat;
 static bool                s_match_valid;
@@ -94,25 +115,57 @@ void ir_scene_learn_success_on_enter(void *ctx)
     s_match_label[0] = '\0';
 
     lv_color_t accent = COLOR_YELLOW;
+    char buf[48];
+
     if(app->last_decoded_valid) {
         accent = ir_protocol_color(app->last_decoded.protocol);
         view_info_set_header(app->info, app->last_decoded.protocol, accent);
         view_info_add_pill(app->info, app->last_decoded.protocol, accent);
 
-        /* Confidence pill: green if Flipper-codec, yellow if codec_db
-         * fallback. RAW-only is handled in the !last_decoded_valid branch. */
         const char *conf_text = (app->last_decoded.source == IR_DECODED_FLIPPER)
                                     ? "Verified" : "Best-fit";
         lv_color_t  conf_clr  = (app->last_decoded.source == IR_DECODED_FLIPPER)
                                     ? COLOR_GREEN : COLOR_YELLOW;
         view_info_add_pill(app->info, conf_text, conf_clr);
 
-        snprintf(addr_buf, sizeof(addr_buf), "0x%08lX",
-                 (unsigned long)app->last_decoded.address);
-        snprintf(cmd_buf, sizeof(cmd_buf), "0x%08lX",
-                 (unsigned long)app->last_decoded.command);
+        if(app->last_decoded.repeat) {
+            view_info_add_pill(app->info, "Repeat", COLOR_CYAN);
+        }
+
+        InfraredProtocol p = infrared_get_protocol_by_name(app->last_decoded.protocol);
+        uint8_t addr_bits = infrared_is_protocol_valid(p)
+                                ? infrared_get_protocol_address_length(p) : 32;
+        uint8_t cmd_bits  = infrared_is_protocol_valid(p)
+                                ? infrared_get_protocol_command_length(p) : 32;
+
+        format_bits(addr_buf, sizeof(addr_buf), app->last_decoded.address, addr_bits);
+        format_bits(cmd_buf,  sizeof(cmd_buf),  app->last_decoded.command, cmd_bits);
         view_info_add_field(app->info, "Address", addr_buf, COLOR_PRIMARY);
         view_info_add_field(app->info, "Command", cmd_buf, COLOR_PRIMARY);
+
+        /* Decimal command often matches what manufacturers print in service
+         * docs (e.g. NEC cmd 0x12 == "channel 18"). Helpful for hackers
+         * cross-referencing against forum dumps. */
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)app->last_decoded.command);
+        view_info_add_field(app->info, "Cmd (dec)", buf, COLOR_SECONDARY);
+
+        if(infrared_is_protocol_valid(p)) {
+            uint32_t hz = infrared_get_protocol_frequency(p);
+            snprintf(buf, sizeof(buf), "%lu.%02lu kHz",
+                     (unsigned long)(hz / 1000),
+                     (unsigned long)((hz % 1000) / 10));
+            view_info_add_field(app->info, "Carrier", buf, COLOR_SECONDARY);
+        }
+
+        if(app->pending_raw_timings && app->pending_raw_n > 0) {
+            uint32_t total_us = sum_durations_us(app->pending_raw_timings,
+                                                 app->pending_raw_n);
+            snprintf(buf, sizeof(buf), "%u edges, %lu.%lu ms",
+                     (unsigned)app->pending_raw_n,
+                     (unsigned long)(total_us / 1000),
+                     (unsigned long)((total_us % 1000) / 100));
+            view_info_add_field(app->info, "Frame", buf, COLOR_SECONDARY);
+        }
 
         s_match_valid = ir_universal_index_match(app->last_decoded.protocol,
                                                  app->last_decoded.address,
@@ -129,11 +182,32 @@ void ir_scene_learn_success_on_enter(void *ctx)
     } else {
         view_info_set_header(app->info, "Raw Capture", COLOR_YELLOW);
         view_info_add_pill(app->info, "Raw only", COLOR_ORANGE);
-        char cnt_buf[32];
-        snprintf(cnt_buf, sizeof(cnt_buf), "%u",
-                 (unsigned)app->pending_button.signal.raw.n_timings);
-        view_info_add_field(app->info, "Timings", cnt_buf, COLOR_PRIMARY);
-        view_info_add_field(app->info, "Carrier", "38 kHz", COLOR_SECONDARY);
+
+        size_t  n_t   = app->pending_button.signal.raw.n_timings;
+        uint32_t freq = app->pending_button.signal.raw.freq_hz
+                            ? app->pending_button.signal.raw.freq_hz : 38000;
+        uint32_t duty = app->pending_button.signal.raw.duty_pct
+                            ? app->pending_button.signal.raw.duty_pct : 33;
+
+        snprintf(buf, sizeof(buf), "%u", (unsigned)n_t);
+        view_info_add_field(app->info, "Timings", buf, COLOR_PRIMARY);
+
+        if(app->pending_raw_timings && app->pending_raw_n > 0) {
+            uint32_t total_us = sum_durations_us(app->pending_raw_timings,
+                                                 app->pending_raw_n);
+            snprintf(buf, sizeof(buf), "%lu.%lu ms",
+                     (unsigned long)(total_us / 1000),
+                     (unsigned long)((total_us % 1000) / 100));
+            view_info_add_field(app->info, "Duration", buf, COLOR_SECONDARY);
+        }
+
+        snprintf(buf, sizeof(buf), "%lu.%02lu kHz",
+                 (unsigned long)(freq / 1000),
+                 (unsigned long)((freq % 1000) / 10));
+        view_info_add_field(app->info, "Carrier", buf, COLOR_SECONDARY);
+
+        snprintf(buf, sizeof(buf), "%lu%%", (unsigned long)duty);
+        view_info_add_field(app->info, "Duty", buf, COLOR_SECONDARY);
     }
 
     if(app->pending_raw_timings && app->pending_raw_n > 0) {

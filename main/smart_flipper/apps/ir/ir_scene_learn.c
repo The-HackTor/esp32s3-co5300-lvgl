@@ -4,6 +4,9 @@
 #include "ui/widgets/back_button.h"
 #include "hw/hw_rgb.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #define SCOPE_W 320
 #define SCOPE_H 80
 #define SCOPE_BAR_CAP 64
@@ -56,10 +59,28 @@ void ir_scene_learn_on_enter(void *ctx)
 {
     IrApp *app = ctx;
 
+    /* Clear ALL stale capture state from any previous Learn session: the
+     * pending button, the parsed-decode flag, the duplicated raw timings,
+     * and the live-scope preview buffer. Otherwise the scope re-shows the
+     * last captured waveform until a new one arrives, and a stale
+     * last_decoded could leak into LearnSuccess if the user hits Send
+     * before any new frame is captured. */
     if(app->pending_valid) {
         ir_button_free(&app->pending_button);
         app->pending_valid = false;
     }
+    memset(&app->pending_button, 0, sizeof(app->pending_button));
+    app->last_decoded_valid = false;
+    memset(&app->last_decoded, 0, sizeof(app->last_decoded));
+    if(app->pending_raw_timings) {
+        free(app->pending_raw_timings);
+        app->pending_raw_timings = NULL;
+    }
+    app->pending_raw_n = 0;
+    app->preview_n = 0;
+    /* Bump preview_seq so the scope-redraw timer's first tick paints the
+     * empty buffer and clears whatever was rendered last session. */
+    app->preview_seq++;
 
     lv_obj_t *view = view_custom_get_view(app->custom);
     view_custom_clean(app->custom);
