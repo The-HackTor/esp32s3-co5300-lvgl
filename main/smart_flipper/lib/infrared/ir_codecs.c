@@ -17,6 +17,15 @@
 #include "codec_db.h"
 #include "codec_db_send.h"
 
+#include "nec/infrared_protocol_nec.h"
+#include "samsung/infrared_protocol_samsung.h"
+#include "rc5/infrared_protocol_rc5.h"
+#include "rc6/infrared_protocol_rc6.h"
+#include "sirc/infrared_protocol_sirc.h"
+#include "kaseikyo/infrared_protocol_kaseikyo.h"
+#include "pioneer/infrared_protocol_pioneer.h"
+#include "rca/infrared_protocol_rca.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,38 +43,76 @@ static void copy_decoded(IrDecoded *out, const InfraredMessage *msg)
     out->raw_value = 0;
 }
 
+typedef void*               (*proto_alloc_fn)(void);
+typedef void                (*proto_free_fn)(void*);
+typedef InfraredMessage*    (*proto_decode_fn)(void*, bool, uint32_t);
+typedef InfraredMessage*    (*proto_ready_fn)(void*);
+
+typedef struct {
+    proto_alloc_fn  alloc;
+    proto_decode_fn decode;
+    proto_ready_fn  ready;
+    proto_free_fn   free;
+} ProtoEntry;
+
+/* Truly isolated per-protocol decode. The Flipper-shipped dispatcher
+ * (infrared_alloc_decoder + infrared_decode) allocates ALL 8 protocol
+ * decoders simultaneously and runs them in parallel for every timing
+ * sample. We were crashing reliably at rc6 (4th in dispatch order) with
+ * InstrFetchProhibited at the indirect call decoder->protocol->decode --
+ * the rc6 common_decoder->protocol pointer was being clobbered by an
+ * adjacent protocol's per-sample state writes. Heap-poisoning canaries
+ * cannot catch this because the writes are all to legal user-block
+ * memory, just into the wrong protocol's chunk.
+ *
+ * Fix: alloc ONE protocol's decoder, feed the full buffer to it alone,
+ * free, move to next. No two protocols are ever alive at the same time,
+ * so no cross-protocol corruption is physically possible. First match
+ * wins. Order matches Flipper's encoder_decoder[] table for behaviour
+ * parity. */
+static const ProtoEntry s_protos[] = {
+    { infrared_decoder_nec_alloc,      infrared_decoder_nec_decode,
+      infrared_decoder_nec_check_ready, infrared_decoder_nec_free },
+    { infrared_decoder_samsung32_alloc, infrared_decoder_samsung32_decode,
+      infrared_decoder_samsung32_check_ready, infrared_decoder_samsung32_free },
+    { infrared_decoder_rc5_alloc,      infrared_decoder_rc5_decode,
+      infrared_decoder_rc5_check_ready, infrared_decoder_rc5_free },
+    { infrared_decoder_rc6_alloc,      infrared_decoder_rc6_decode,
+      infrared_decoder_rc6_check_ready, infrared_decoder_rc6_free },
+    { infrared_decoder_sirc_alloc,     infrared_decoder_sirc_decode,
+      infrared_decoder_sirc_check_ready, infrared_decoder_sirc_free },
+    { infrared_decoder_kaseikyo_alloc, infrared_decoder_kaseikyo_decode,
+      infrared_decoder_kaseikyo_check_ready, infrared_decoder_kaseikyo_free },
+    { infrared_decoder_pioneer_alloc,  infrared_decoder_pioneer_decode,
+      infrared_decoder_pioneer_check_ready, infrared_decoder_pioneer_free },
+    { infrared_decoder_rca_alloc,      infrared_decoder_rca_decode,
+      infrared_decoder_rca_check_ready, infrared_decoder_rca_free },
+};
+
 static bool decode_flipper(const uint16_t *timings, size_t n_timings, IrDecoded *out)
 {
-    /* Per-call alloc/free. The earlier singleton optimization retained
-     * corrupted decoder state across calls (InstrFetchProhibited at a wild
-     * function-pointer jump from inside common_decode meant decoder->protocol
-     * was clobbered between calls). Now that Learn scene is the sole RX
-     * consumer (ir_app_rx_pause/_resume bracket Learn on_enter/_exit), the
-     * alloc/free pressure that motivated the singleton is bounded to the
-     * actual user-driven capture cadence -- a few frames per session, not
-     * 33 Hz constant. Pay the small alloc cost, get a clean decoder each
-     * time. */
-    InfraredDecoderHandler *handler = infrared_alloc_decoder();
-    if(!handler) return false;
+    for(size_t pi = 0; pi < sizeof(s_protos)/sizeof(s_protos[0]); pi++) {
+        const ProtoEntry *p = &s_protos[pi];
 
-    /* Feed alternating (level, duration) pairs. Mark on even indices. */
-    for(size_t i = 0; i < n_timings; i++) {
-        const bool level = ((i & 1) == 0);
-        const InfraredMessage *msg = infrared_decode(handler, level, timings[i]);
+        void *ctx = p->alloc();
+        if(!ctx) continue;
+
+        const InfraredMessage *msg = NULL;
+        for(size_t i = 0; i < n_timings; i++) {
+            const bool level = ((i & 1) == 0);
+            msg = p->decode(ctx, level, timings[i]);
+            if(msg) break;
+        }
+        if(!msg && p->ready) msg = p->ready(ctx);
+
+        bool matched = false;
         if(msg) {
             copy_decoded(out, msg);
-            infrared_free_decoder(handler);
-            return true;
+            matched = true;
         }
+        p->free(ctx);
+        if(matched) return true;
     }
-    /* SIRC family confirms the message only at end-of-frame timeout. */
-    const InfraredMessage *msg = infrared_check_decoder_ready(handler);
-    if(msg) {
-        copy_decoded(out, msg);
-        infrared_free_decoder(handler);
-        return true;
-    }
-    infrared_free_decoder(handler);
     return false;
 }
 
