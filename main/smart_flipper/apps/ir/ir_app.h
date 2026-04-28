@@ -109,4 +109,7 @@ IrApp *ir_app_get(void);
 void   ir_app_rx_pause(void);
 void   ir_app_rx_resume(void);
 
+/* lv_timer_cb_t-shaped helper for one-shot resume-then-self-delete. */
+void   ir_app_rx_resume_then_delete_timer(lv_timer_t *t);
+
 #endif

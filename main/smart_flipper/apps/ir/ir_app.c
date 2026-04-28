@@ -267,8 +267,13 @@ static SceneManager *get_scene_manager(void) { return &app.scene_mgr; }
 
 IrApp *ir_app_get(void) { return &app; }
 
+/* Refcounted: pause and resume nest safely so the brute scene + a TX
+ * Self-Test fired from inside it (or any future caller) compose. */
+static int s_rx_pause_depth;
+
 void ir_app_rx_pause(void)
 {
+    if(s_rx_pause_depth++ > 0) return;
     hw_ir_rx_stop();
     if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
     if(app.rx_queue) {
@@ -281,9 +286,20 @@ void ir_app_rx_pause(void)
 
 void ir_app_rx_resume(void)
 {
+    if(s_rx_pause_depth == 0) return;
+    if(--s_rx_pause_depth > 0) return;
     if(app.rx_queue) xQueueReset(app.rx_queue);
     hw_ir_rx_start(rx_worker_cb, NULL);
     if(app.rx_drain_timer) lv_timer_resume(app.rx_drain_timer);
+}
+
+/* Helper used by Settings TX Self-Test: matches lv_timer_cb_t signature so
+ * a one-shot lv_timer_create(..., 2500, NULL) auto-resumes RX after the
+ * burst plus a small safety margin and then deletes itself. */
+void ir_app_rx_resume_then_delete_timer(lv_timer_t *t)
+{
+    ir_app_rx_resume();
+    lv_timer_delete(t);
 }
 
 void ir_app_register(void)
