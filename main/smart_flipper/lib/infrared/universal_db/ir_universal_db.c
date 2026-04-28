@@ -3,10 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "esp_log.h"
 
 #define TAG "ir_universal_db"
+#define UNIV_OVERRIDE_DIR "/sdcard/ir/universal"
 
 extern const char _binary_tv_ir_start[]        asm("_binary_tv_ir_start");
 extern const char _binary_tv_ir_end[]          asm("_binary_tv_ir_end");
@@ -84,17 +86,44 @@ esp_err_t ir_universal_db_init(void)
     };
 
     for(int c = 0; c < IR_UNIVERSAL_CAT_COUNT; c++) {
-        size_t len = (size_t)(blobs[c].end - blobs[c].start);
-        esp_err_t err = ir_remote_load_blob(&s_dbs[c].remote, blobs[c].name,
-                                            blobs[c].start, len);
+        esp_err_t err = ESP_FAIL;
+        const char *source = "embed";
+
+        /* SD override: /sdcard/ir/universal/<cat>.ir replaces the embedded
+         * blob if present. Lets the user drop in larger Flipper-Unleashed/
+         * Xtreme DBs or hand-curated tv.ir files without rebuilding. */
+        char ovr_path[80];
+        snprintf(ovr_path, sizeof(ovr_path), "%s/%s.ir",
+                 UNIV_OVERRIDE_DIR, blobs[c].name);
+        struct stat st;
+        if(stat(ovr_path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0) {
+            err = ir_remote_load(&s_dbs[c].remote, ovr_path);
+            if(err == ESP_OK) {
+                /* ir_remote_load names the remote from the file path; force
+                 * the canonical category name for consistency with embed. */
+                snprintf(s_dbs[c].remote.name, sizeof(s_dbs[c].remote.name),
+                         "%s", blobs[c].name);
+                source = "sdcard";
+            } else {
+                ESP_LOGW(TAG, "%s SD override failed: %s -- falling back to embed",
+                         blobs[c].name, esp_err_to_name(err));
+            }
+        }
+
+        if(err != ESP_OK) {
+            size_t len = (size_t)(blobs[c].end - blobs[c].start);
+            err = ir_remote_load_blob(&s_dbs[c].remote, blobs[c].name,
+                                      blobs[c].start, len);
+        }
+
         if(err != ESP_OK) {
             ESP_LOGW(TAG, "load %s: %s", blobs[c].name, esp_err_to_name(err));
             continue;
         }
         build_index(&s_dbs[c]);
         s_dbs[c].loaded = true;
-        ESP_LOGI(TAG, "%s: %u entries, %u unique names",
-                 blobs[c].name,
+        ESP_LOGI(TAG, "%s [%s]: %u entries, %u unique names",
+                 blobs[c].name, source,
                  (unsigned)s_dbs[c].remote.button_count,
                  (unsigned)s_dbs[c].button_count);
     }
