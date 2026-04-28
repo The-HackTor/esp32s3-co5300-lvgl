@@ -59,6 +59,8 @@ static void on_tx_done(uint32_t id, HwIrTxResult result, void *ctx);
 static void on_stop_or_resume(void *ctx);
 static void on_back(void *ctx);
 static void on_worked(void *ctx);
+static void on_prev(void *ctx);
+static void on_next(void *ctx);
 
 static void brute_submit_next(IrApp *app)
 {
@@ -130,6 +132,9 @@ static void brute_tick_cb(lv_timer_t *t)
              * will refire the same step on resume. */
             continue;
         }
+        /* Prev/Next manual fires happen while paused -- the user is
+         * scrubbing through signals, not advancing the brute cursor. */
+        if(s_st.paused) continue;
         s_st.cur += 1;
         if(s_st.cur >= s_st.total) s_st.finished = true;
         if((s_st.cur % 10) == 0 || s_st.finished) {
@@ -193,6 +198,13 @@ static void render(IrApp *app)
     if(s_st.finished) {
         view_info_add_button(app->info, "Back", COLOR_GREEN, on_back, app);
     } else if(s_st.paused) {
+        const bool can_prev = s_st.cur > 0;
+        const bool can_next = s_st.cur + 1 < s_st.total;
+        view_info_add_button_row(app->info,
+                                 LV_SYMBOL_LEFT  " Prev", can_prev ? COLOR_BLUE : COLOR_DIM,
+                                 on_prev, app,
+                                 LV_SYMBOL_RIGHT " Next", can_next ? COLOR_BLUE : COLOR_DIM,
+                                 on_next, app);
         view_info_add_button_row(app->info,
                                  "Resume", COLOR_RED,    on_stop_or_resume, app,
                                  "Save",   COLOR_GREEN,  on_worked,         app);
@@ -227,6 +239,31 @@ static void on_back(void *ctx)
     IrApp *app = ctx;
     scene_manager_previous_scene(&app->scene_mgr);
 }
+
+static void on_step(IrApp *app, int delta)
+{
+    if(!s_st.paused) return;
+    if(delta < 0) {
+        if(s_st.cur == 0) return;
+        s_st.cur--;
+    } else {
+        if(s_st.cur + 1 >= s_st.total) return;
+        s_st.cur++;
+    }
+    /* Cancel any in-flight manual/burst before refiring. The previous id
+     * is no longer last_tx_id once submit_next runs, so its ack lands as
+     * a stale event and gets dropped by the queue handler. */
+    if(s_st.in_flight && s_st.last_tx_id) {
+        hw_ir_tx_cancel(s_st.last_tx_id);
+        s_st.in_flight = false;
+        hw_rgb_off();
+    }
+    brute_submit_next(app);
+    render_if_dirty(app);
+}
+
+static void on_prev(void *ctx) { on_step(ctx, -1); }
+static void on_next(void *ctx) { on_step(ctx, +1); }
 
 static void on_worked(void *ctx)
 {
