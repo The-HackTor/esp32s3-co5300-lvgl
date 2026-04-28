@@ -88,10 +88,16 @@ void view_dispatcher_switch_to_view(ViewDispatcher *vd, uint32_t view_id)
         }
     }
 
-    /* Show new view */
+    /* Show new view -- reset position + opacity in case a prior animated
+     * transition left this view slid off-screen (x = -DISP_W) or faded out.
+     * Without these resets, going Scene A (animated) -> Scene B -> Scene A
+     * (non-animated) leaves Scene A invisible at x = -DISP_W. */
     ViewEntry *next = find_entry(vd, view_id);
     if(next) {
         lv_obj_t *next_view = view_module_get_view(&next->module);
+        lv_anim_delete(next_view, NULL);   /* cancel any pending animation */
+        lv_obj_set_x(next_view, 0);
+        lv_obj_set_style_opa(next_view, LV_OPA_COVER, 0);
         lv_obj_remove_flag(next_view, LV_OBJ_FLAG_HIDDEN);
         vd->current_view_id = view_id;
     }

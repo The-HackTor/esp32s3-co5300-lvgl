@@ -34,44 +34,38 @@ static void copy_decoded(IrDecoded *out, const InfraredMessage *msg)
     out->raw_value = 0;
 }
 
-/* Singleton decoder handle, owned for the lifetime of the app.
- *
- * Original implementation alloc'd a fresh handler per RX frame -- ~20 small
- * mallocs and ~20 frees on every 30ms drain cycle under repeated captures.
- * That churn kept tripping a latent TLSF corruption (StoreProhibited at
- * insert_free_block with 0xa5a5a5a5 in the free-list head) on the rc6 free
- * path. Caching the handler eliminates the alloc/free pressure entirely,
- * fixes the recurring crash, and is faster.
- *
- * Caller is the LVGL task only (rx_drain_timer_cb), so single-threaded
- * access is enough -- no mutex needed. Each call resets state via
- * infrared_reset_decoder before feeding new timings. */
-static InfraredDecoderHandler *s_decode_handler;
-
 static bool decode_flipper(const uint16_t *timings, size_t n_timings, IrDecoded *out)
 {
-    if(!s_decode_handler) {
-        s_decode_handler = infrared_alloc_decoder();
-        if(!s_decode_handler) return false;
-    } else {
-        infrared_reset_decoder(s_decode_handler);
-    }
+    /* Per-call alloc/free. The earlier singleton optimization retained
+     * corrupted decoder state across calls (InstrFetchProhibited at a wild
+     * function-pointer jump from inside common_decode meant decoder->protocol
+     * was clobbered between calls). Now that Learn scene is the sole RX
+     * consumer (ir_app_rx_pause/_resume bracket Learn on_enter/_exit), the
+     * alloc/free pressure that motivated the singleton is bounded to the
+     * actual user-driven capture cadence -- a few frames per session, not
+     * 33 Hz constant. Pay the small alloc cost, get a clean decoder each
+     * time. */
+    InfraredDecoderHandler *handler = infrared_alloc_decoder();
+    if(!handler) return false;
 
     /* Feed alternating (level, duration) pairs. Mark on even indices. */
     for(size_t i = 0; i < n_timings; i++) {
         const bool level = ((i & 1) == 0);
-        const InfraredMessage *msg = infrared_decode(s_decode_handler, level, timings[i]);
+        const InfraredMessage *msg = infrared_decode(handler, level, timings[i]);
         if(msg) {
             copy_decoded(out, msg);
+            infrared_free_decoder(handler);
             return true;
         }
     }
     /* SIRC family confirms the message only at end-of-frame timeout. */
-    const InfraredMessage *msg = infrared_check_decoder_ready(s_decode_handler);
+    const InfraredMessage *msg = infrared_check_decoder_ready(handler);
     if(msg) {
         copy_decoded(out, msg);
+        infrared_free_decoder(handler);
         return true;
     }
+    infrared_free_decoder(handler);
     return false;
 }
 
@@ -133,13 +127,6 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     uint16_t *buf = malloc(cap * sizeof(uint16_t));
     if(!buf) { infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
 
-    /* Flipper's encoder emits (level, duration) samples. PDWM protocols
-     * (NEC, Samsung, SIRC, etc.) alternate level cleanly so index parity
-     * matches; Manchester (RC5, RC6) emits consecutive same-level samples
-     * between bits with the same logical value, which must be merged into
-     * one duration so hw_ir_send_raw's mark/space index-parity contract
-     * holds. Also drop the leading silence sample so buf[0] is the real
-     * preamble mark. */
     bool started = false;
     bool expected_level = true;
     for(;;) {
