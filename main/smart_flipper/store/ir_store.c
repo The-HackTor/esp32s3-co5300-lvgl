@@ -251,7 +251,18 @@ static esp_err_t parse_remote_stream(IrRemote *out, FILE *fp)
                 if(starts_with(p, IR_FILETYPE_SIGNALS) ||
                    starts_with(p, IR_FILETYPE_LIBRARY) ||
                    starts_with(p, IR_VERSION_HEADER)) continue;
-                if(*p == '#') header_done = true;
+                if(*p == '#') {
+                    /* The '#' that ends the header IS ALSO the start of the
+                     * first button. Without setting cur_valid=true here, the
+                     * first button's fields get parsed into cur but never
+                     * saved -- the next '#' calls finalize_button while
+                     * cur_valid is still false, drops the entry, and the
+                     * SECOND button's data overwrites cur. Off-by-one for
+                     * every .ir file we load (universal DB, saved remotes,
+                     * recents -- all silently miss their first entry). */
+                    header_done = true;
+                    cur_valid   = true;
+                }
                 continue;
             }
             if(*p == '#') {
