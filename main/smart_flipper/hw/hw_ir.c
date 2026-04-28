@@ -445,6 +445,8 @@ bool hw_ir_tx_was_recent_us(int64_t window_us)
 typedef struct {
     uint16_t *timings;
     size_t    n;
+    uint16_t *repeat;        /* may be NULL -- worker re-fires `timings` */
+    size_t    repeat_n;
     uint32_t  freq_hz;
     uint32_t  period_ms;
 } repeat_args_t;
@@ -456,12 +458,15 @@ static volatile bool      s_repeat_running;
 static void repeat_task_fn(void *arg)
 {
     repeat_args_t *a = arg;
+    const uint16_t *hold_t = a->repeat   ? a->repeat   : a->timings;
+    size_t          hold_n = a->repeat_n ? a->repeat_n : a->n;
     while(s_repeat_running) {
         vTaskDelay(pdMS_TO_TICKS(a->period_ms));
         if(!s_repeat_running) break;
-        hw_ir_send_raw(a->timings, a->n, a->freq_hz);
+        hw_ir_send_raw(hold_t, hold_n, a->freq_hz);
     }
     free(a->timings);
+    if(a->repeat) free(a->repeat);
     free(a);
     s_repeat_task = NULL;
     if(s_repeat_done_sem) xSemaphoreGive(s_repeat_done_sem);
@@ -469,6 +474,7 @@ static void repeat_task_fn(void *arg)
 }
 
 esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
+                                  const uint16_t *repeat_timings, size_t repeat_n_timings,
                                   uint32_t carrier_hz, uint32_t period_ms)
 {
     if(!s_inited)                         return ESP_ERR_INVALID_STATE;
@@ -485,18 +491,26 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
     /* Drop any stale give from a prior cycle so our wait isn't skipped. */
     xSemaphoreTake(s_repeat_done_sem, 0);
 
-    repeat_args_t *a = malloc(sizeof(repeat_args_t));
+    repeat_args_t *a = calloc(1, sizeof(repeat_args_t));
     if(!a) return ESP_ERR_NO_MEM;
     a->timings = malloc(n_timings * sizeof(uint16_t));
     if(!a->timings) { free(a); return ESP_ERR_NO_MEM; }
     memcpy(a->timings, timings, n_timings * sizeof(uint16_t));
     a->n         = n_timings;
+    if(repeat_timings && repeat_n_timings) {
+        a->repeat = malloc(repeat_n_timings * sizeof(uint16_t));
+        if(!a->repeat) { free(a->timings); free(a); return ESP_ERR_NO_MEM; }
+        memcpy(a->repeat, repeat_timings, repeat_n_timings * sizeof(uint16_t));
+        a->repeat_n = repeat_n_timings;
+    }
     a->freq_hz   = carrier_hz ? carrier_hz : 38000;
     a->period_ms = period_ms ? period_ms : 110;
 
     esp_err_t err = hw_ir_send_raw(a->timings, n_timings, a->freq_hz);
     if(err != ESP_OK) {
-        free(a->timings); free(a);
+        free(a->timings);
+        if(a->repeat) free(a->repeat);
+        free(a);
         return err;
     }
 
@@ -504,7 +518,9 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
     if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, a,
                                tskIDLE_PRIORITY + 3, &s_repeat_task, 1) != pdPASS) {
         s_repeat_running = false;
-        free(a->timings); free(a);
+        free(a->timings);
+        if(a->repeat) free(a->repeat);
+        free(a);
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

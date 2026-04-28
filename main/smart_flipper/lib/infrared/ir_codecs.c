@@ -144,6 +144,60 @@ bool ir_codecs_decode(const uint16_t *timings, size_t n_timings, IrDecoded *out)
     return false;
 }
 
+/* Drain one Done-terminated cycle from the encoder into a fresh buffer.
+ * Skips leading silence so out_buf[0] is always a mark. Returns ESP_OK
+ * with n==0 if the cycle produced nothing usable (e.g., encode error
+ * before the first mark). */
+static esp_err_t encode_one_cycle(InfraredEncoderHandler *handler,
+                                  uint16_t **out_buf, size_t *out_n)
+{
+    size_t cap = 256;
+    size_t n   = 0;
+    uint16_t *buf = malloc(cap * sizeof(uint16_t));
+    if(!buf) return ESP_ERR_NO_MEM;
+
+    bool started = false;
+    bool expected_level = true;
+    for(;;) {
+        uint32_t duration = 0;
+        bool     level    = false;
+        InfraredStatus s = infrared_encode(handler, &duration, &level);
+        if(s == InfraredStatusError) {
+            free(buf);
+            return ESP_FAIL;
+        }
+        if(!started) {
+            if(!level) {
+                if(s == InfraredStatusDone) break;
+                continue;
+            }
+            started = true;
+        }
+        if(duration > 32767) duration = 32767;
+        if(level == expected_level) {
+            if(n == cap) {
+                size_t new_cap = cap * 2;
+                uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
+                if(!r) { free(buf); return ESP_ERR_NO_MEM; }
+                buf = r;
+                cap = new_cap;
+            }
+            buf[n++] = (uint16_t)duration;
+            expected_level = !expected_level;
+        } else if(n > 0) {
+            uint32_t merged = (uint32_t)buf[n - 1] + duration;
+            if(merged > 32767) merged = 32767;
+            buf[n - 1] = (uint16_t)merged;
+        }
+        if(s == InfraredStatusDone) break;
+    }
+
+    if(n == 0) { free(buf); *out_buf = NULL; *out_n = 0; return ESP_OK; }
+    *out_buf = buf;
+    *out_n   = n;
+    return ESP_OK;
+}
+
 esp_err_t ir_codecs_encode(const IrDecoded *in,
                            uint16_t **out_timings, size_t *out_n,
                            uint32_t *out_freq_hz)
@@ -169,57 +223,82 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     };
     infrared_reset_encoder(handler, &msg);
 
-    size_t cap = 256;
-    size_t n   = 0;
-    uint16_t *buf = malloc(cap * sizeof(uint16_t));
-    if(!buf) { infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
-
-    bool started = false;
-    bool expected_level = true;
-    for(;;) {
-        uint32_t duration = 0;
-        bool     level    = false;
-        InfraredStatus s = infrared_encode(handler, &duration, &level);
-        if(s == InfraredStatusError) {
-            free(buf);
-            infrared_free_encoder(handler);
-            return ESP_FAIL;
-        }
-        if(!started) {
-            if(!level) {
-                if(s == InfraredStatusDone) break;
-                continue;
-            }
-            started = true;
-        }
-        if(duration > 32767) duration = 32767;
-        if(level == expected_level) {
-            if(n == cap) {
-                size_t new_cap = cap * 2;
-                uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
-                if(!r) { free(buf); infrared_free_encoder(handler); return ESP_ERR_NO_MEM; }
-                buf = r;
-                cap = new_cap;
-            }
-            buf[n++] = (uint16_t)duration;
-            expected_level = !expected_level;
-        } else if(n > 0) {
-            uint32_t merged = (uint32_t)buf[n - 1] + duration;
-            if(merged > 32767) merged = 32767;
-            buf[n - 1] = (uint16_t)merged;
-        }
-        if(s == InfraredStatusDone) break;
-    }
-
-    if(n == 0) {
-        free(buf);
-        infrared_free_encoder(handler);
-        return ESP_FAIL;
-    }
+    uint16_t *buf = NULL;
+    size_t    n   = 0;
+    esp_err_t err = encode_one_cycle(handler, &buf, &n);
+    infrared_free_encoder(handler);
+    if(err != ESP_OK) return err;
+    if(n == 0)        return ESP_FAIL;
 
     *out_timings = buf;
     *out_n       = n;
     *out_freq_hz = infrared_get_protocol_frequency(proto);
+    return ESP_OK;
+}
+
+esp_err_t ir_codecs_encode_with_repeat(const IrDecoded *in,
+                                       uint16_t **out_timings,        size_t *out_n,
+                                       uint16_t **out_repeat_timings, size_t *out_repeat_n,
+                                       uint32_t *out_freq_hz)
+{
+    if(!in || !out_timings || !out_n ||
+       !out_repeat_timings || !out_repeat_n || !out_freq_hz) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_repeat_timings = NULL;
+    *out_repeat_n       = 0;
+
+    InfraredProtocol proto = infrared_get_protocol_by_name(in->protocol);
+    if(!infrared_is_protocol_valid(proto)) {
+        /* codec_db / IRremoteESP8266 protocols don't have a stateful
+         * Flipper-style repeat encoder. Fall back to a single-frame
+         * encode -- caller should re-fire the full frame on hold. */
+        ir_codec_send_fn fn = codec_db_send_lookup(in->protocol);
+        if(fn) return fn(in->address, in->command, in->raw_value,
+                         out_timings, out_n, out_freq_hz);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    InfraredEncoderHandler *handler = infrared_alloc_encoder();
+    if(!handler) return ESP_ERR_NO_MEM;
+
+    InfraredMessage msg = {
+        .protocol = proto,
+        .address  = in->address,
+        .command  = in->command,
+        .repeat   = false,
+    };
+    infrared_reset_encoder(handler, &msg);
+
+    /* Phase 1: full frame. */
+    uint16_t *frame_buf = NULL;
+    size_t    frame_n   = 0;
+    esp_err_t err = encode_one_cycle(handler, &frame_buf, &frame_n);
+    if(err != ESP_OK || frame_n == 0) {
+        infrared_free_encoder(handler);
+        if(frame_buf) free(frame_buf);
+        return err == ESP_OK ? ESP_FAIL : err;
+    }
+
+    /* Phase 2: one repeat cycle. The encoder is in EncodeRepeat (NEC,
+     * Samsung, ...) or Silence (RC5, RC6, Pioneer, RCA, ...) state and
+     * keeps timings_sum across the transition. Either way, draining
+     * another cycle yields the protocol-correct hold sequence. */
+    uint16_t *rep_buf = NULL;
+    size_t    rep_n   = 0;
+    err = encode_one_cycle(handler, &rep_buf, &rep_n);
+    if(err != ESP_OK) {
+        infrared_free_encoder(handler);
+        free(frame_buf);
+        if(rep_buf) free(rep_buf);
+        return err;
+    }
+
+    *out_timings        = frame_buf;
+    *out_n              = frame_n;
+    *out_repeat_timings = rep_buf;
+    *out_repeat_n       = rep_n;
+    *out_freq_hz        = infrared_get_protocol_frequency(proto);
 
     infrared_free_encoder(handler);
     return ESP_OK;

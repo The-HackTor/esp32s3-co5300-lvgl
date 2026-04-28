@@ -57,6 +57,25 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
                            uint16_t **out_timings, size_t *out_n,
                            uint32_t *out_freq_hz);
 
+/*
+ * Like ir_codecs_encode but also captures one cycle of the protocol's
+ * repeat-sequence following the first frame. NEC/NECext/NEC42/Samsung32
+ * have a short repeat code (the 9000/2250/562 sequence and similar);
+ * other Flipper-tier protocols re-fire the full frame on hold. Either
+ * way, *out_repeat_t is what should be sent for every hold-tick AFTER
+ * the first frame so a held button looks to the receiver like one
+ * sustained press, not a burst of distinct presses.
+ *
+ * On success, callers must free both *out_timings and *out_repeat_t.
+ * If *out_repeat_n is 0 (codec_db / IRremoteESP8266 protocols without
+ * a Flipper-tier encoder), the repeat buffer is unset; the hold-tick
+ * caller should re-fire the full frame.
+ */
+esp_err_t ir_codecs_encode_with_repeat(const IrDecoded *in,
+                                       uint16_t **out_timings,        size_t *out_n,
+                                       uint16_t **out_repeat_timings, size_t *out_repeat_n,
+                                       uint32_t *out_freq_hz);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

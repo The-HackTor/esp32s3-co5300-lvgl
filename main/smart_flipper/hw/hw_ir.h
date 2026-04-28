@@ -38,14 +38,24 @@ void hw_ir_init(void);
 esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t carrier_hz);
 
 /*
- * Hold-to-repeat TX. Spawns a worker that retransmits the burst every
- * period_ms until hw_ir_send_repeat_stop is called. The first burst fires
- * synchronously inside _start so a quick tap still produces one TX.
+ * Hold-to-repeat TX. Spawns a worker that retransmits a burst every
+ * period_ms until hw_ir_send_repeat_stop is called. The first burst
+ * fires synchronously inside _start so a quick tap still produces one
+ * TX.
  *
- * Buffer is copied internally; caller may free immediately. Calling _start
- * while already repeating returns ESP_ERR_INVALID_STATE.
+ * `repeat_timings` is the protocol-correct hold sequence (NEC/NECext/
+ * NEC42/Samsung32 short repeat code; full frame for RC5/RC6/Pioneer/
+ * RCA which lack a short-repeat encoding). When non-NULL it is used
+ * for every TX after the initial burst, so a held button looks to the
+ * receiver like one sustained press, not a rapid sequence of distinct
+ * presses. Pass NULL/0 to fall back to re-firing `timings` (raw signals,
+ * codec_db protocols).
+ *
+ * Buffers are copied internally; caller may free immediately. Calling
+ * _start while already repeating returns ESP_ERR_INVALID_STATE.
  */
 esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
+                                  const uint16_t *repeat_timings, size_t repeat_n_timings,
                                   uint32_t carrier_hz, uint32_t period_ms);
 void      hw_ir_send_repeat_stop(void);
 
