@@ -83,6 +83,15 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         return;
     }
 
+    {
+        uint32_t total_us = 0;
+        for(size_t i = 0; i < frame->n_timings; i++) total_us += frame->timings[i];
+        if(frame->n_timings < 8 || total_us < 5000) {
+            free(frame);
+            return;
+        }
+    }
+
     hw_rgb_pulse(0, 255, 0, 100);
 
     size_t prev_n = frame->n_timings < 256 ? frame->n_timings : 256;

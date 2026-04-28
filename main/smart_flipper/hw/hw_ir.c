@@ -562,14 +562,43 @@ static void rx_task(void *arg)
         if(!s_rx_running) break;
 
         size_t out_n = 0;
-        for(size_t i = 0; i < evt.count && out_n + 1 < sizeof(timings)/sizeof(timings[0]); i++) {
-            if(evt.symbols[i].duration0 == 0) break;
-            timings[out_n++] = evt.symbols[i].duration0;
-            if(evt.symbols[i].duration1 == 0) break;
-            timings[out_n++] = evt.symbols[i].duration1;
+        bool started = false;
+        for(size_t i = 0; i < evt.count; i++) {
+            const rmt_symbol_word_t s = evt.symbols[i];
+
+            /* phase 0 */
+            if(s.duration0 == 0) break;
+            const bool ph0_is_mark = (s.level0 == 0); /* TSOP active-low */
+            if(!started) {
+                if(ph0_is_mark) {
+                    timings[out_n++] = s.duration0;
+                    started = true;
+                }
+                /* else: leading space, skip */
+            } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
+                timings[out_n++] = s.duration0;
+            } else {
+                break;
+            }
+
+            /* phase 1 */
+            if(s.duration1 == 0) break;
+            if(!started) {
+                /* phase0 was a leading space we skipped; phase1 should be
+                 * the first mark. */
+                const bool ph1_is_mark = (s.level1 == 0);
+                if(ph1_is_mark) {
+                    timings[out_n++] = s.duration1;
+                    started = true;
+                }
+            } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
+                timings[out_n++] = s.duration1;
+            } else {
+                break;
+            }
         }
 
-        if(s_rx_user_cb && out_n > 0) {
+        if(s_rx_user_cb && out_n >= 2) {
             s_rx_user_cb(timings, out_n, s_rx_user_ctx);
         }
 
