@@ -9,6 +9,9 @@
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "lib/infrared/encoder_decoder/infrared.h"
+
+#define IR_STORE_MAX_TIMINGS 1024
 
 #define TAG "ir_store"
 
@@ -56,7 +59,7 @@ static esp_err_t parse_timings(const char *s, uint16_t **out_arr, size_t *out_n)
     if(!arr) return ESP_ERR_NO_MEM;
 
     const char *p = s;
-    while(*p) {
+    while(*p && n < IR_STORE_MAX_TIMINGS) {
         p = skip_ws(p);
         if(!isdigit((unsigned char)*p)) break;
 
@@ -67,6 +70,7 @@ static esp_err_t parse_timings(const char *s, uint16_t **out_arr, size_t *out_n)
 
         if(n == cap) {
             size_t new_cap = cap * 2;
+            if(new_cap > IR_STORE_MAX_TIMINGS) new_cap = IR_STORE_MAX_TIMINGS;
             uint16_t *r = realloc(arr, new_cap * sizeof(uint16_t));
             if(!r) { free(arr); return ESP_ERR_NO_MEM; }
             arr = r;
@@ -233,9 +237,50 @@ esp_err_t ir_remote_delete_file(const IrRemote *r)
     return ESP_OK;
 }
 
+static bool button_is_well_formed(const IrButton *b)
+{
+    if(b->name[0] == '\0') return false;
+    if(b->signal.type == INFRARED_SIGNAL_PARSED) {
+        return b->signal.parsed.protocol[0] != '\0';
+    }
+    return b->signal.raw.timings != NULL && b->signal.raw.n_timings > 0;
+}
+
+/* Mask parsed address/command to the protocol's declared bit length.
+ * Captured signals always honor the mask, but a hand-edited or
+ * corrupted .ir file can carry stray high bits -- silently dropping
+ * them on load avoids round-trip drift versus a real Flipper, which
+ * refuses to load such files outright. Unknown protocols (codec_db /
+ * IRremoteESP8266 names) bypass the mask since their bit-length isn't
+ * registered with infrared_get_protocol_address_length. */
+static void clamp_parsed_to_protocol(IrButton *b)
+{
+    if(b->signal.type != INFRARED_SIGNAL_PARSED) return;
+    InfraredProtocol p = infrared_get_protocol_by_name(b->signal.parsed.protocol);
+    if(!infrared_is_protocol_valid(p)) return;
+
+    uint8_t addr_bits = infrared_get_protocol_address_length(p);
+    uint8_t cmd_bits  = infrared_get_protocol_command_length(p);
+    if(addr_bits && addr_bits < 32) {
+        uint32_t mask = (1U << addr_bits) - 1U;
+        b->signal.parsed.address &= mask;
+    }
+    if(cmd_bits && cmd_bits < 32) {
+        uint32_t mask = (1U << cmd_bits) - 1U;
+        b->signal.parsed.command &= mask;
+    }
+}
+
 static void finalize_button(IrRemote *r, IrButton *cur, bool *cur_valid)
 {
     if(!*cur_valid) return;
+    if(!button_is_well_formed(cur)) {
+        ir_button_free(cur);
+        memset(cur, 0, sizeof(*cur));
+        *cur_valid = false;
+        return;
+    }
+    clamp_parsed_to_protocol(cur);
     if(r->button_count == r->button_cap) {
         if(buttons_grow(r) != ESP_OK) {
             ir_button_free(cur);
