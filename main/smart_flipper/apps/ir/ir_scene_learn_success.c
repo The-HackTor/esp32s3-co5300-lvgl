@@ -255,8 +255,12 @@ void ir_scene_learn_success_on_enter(void *ctx)
 
 bool ir_scene_learn_success_on_event(void *ctx, SceneEvent event)
 {
-    (void)ctx;
-    (void)event;
+    IrApp *app = ctx;
+    if(event.type == SceneEventTypeBack &&
+       (app->pending_valid || app->last_decoded_valid)) {
+        scene_manager_next_scene(&app->scene_mgr, ir_SCENE_AskBack);
+        return true;
+    }
     return false;
 }
 
