@@ -51,18 +51,33 @@ const SceneManagerHandlers ir_scene_handlers = {
     .scene_num = IR_SCENE_COUNT,
 };
 
-static void rx_worker_cb(const uint16_t *timings, size_t n_timings, void *ctx)
+static void worker_signal_cb(void *ctx, InfraredWorkerSignal *signal)
 {
     (void)ctx;
     if(!app.rx_queue) return;
 
     IrRxFrame *frame = malloc(sizeof(IrRxFrame));
     if(!frame) return;
+    memset(frame, 0, sizeof(*frame));
 
-    size_t copy_n = n_timings;
-    if(copy_n > IR_RX_TIMINGS_MAX) copy_n = IR_RX_TIMINGS_MAX;
-    memcpy(frame->timings, timings, copy_n * sizeof(uint16_t));
-    frame->n_timings = copy_n;
+    if(infrared_worker_signal_is_decoded(signal)) {
+        const InfraredMessage *msg = infrared_worker_get_decoded_signal(signal);
+        if(msg) {
+            frame->decoded = true;
+            frame->message = *msg;
+            frame->frequency = infrared_get_protocol_frequency(msg->protocol);
+        }
+    } else {
+        const uint32_t *t = NULL;
+        size_t n = 0;
+        infrared_worker_get_raw_signal(signal, &t, &n);
+        if(n > IR_RX_TIMINGS_MAX) n = IR_RX_TIMINGS_MAX;
+        for(size_t i = 0; i < n; i++) {
+            frame->timings[i] = (t[i] > 0xFFFF) ? 0xFFFF : (uint16_t)t[i];
+        }
+        frame->n_timings = n;
+        frame->frequency = 38000;
+    }
 
     if(xQueueSend(app.rx_queue, &frame, 0) != pdTRUE) {
         free(frame);
@@ -83,15 +98,6 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         return;
     }
 
-    {
-        uint32_t total_us = 0;
-        for(size_t i = 0; i < frame->n_timings; i++) total_us += frame->timings[i];
-        if(frame->n_timings < 8 || total_us < 5000) {
-            free(frame);
-            return;
-        }
-    }
-
     hw_rgb_pulse(0, 255, 0, 100);
 
     size_t prev_n = frame->n_timings < 256 ? frame->n_timings : 256;
@@ -99,14 +105,21 @@ static void rx_drain_timer_cb(lv_timer_t *t)
     app.preview_n = prev_n;
     app.preview_seq++;
 
-    IrDecoded dec = {0};
-    bool decoded = ir_codecs_decode(frame->timings, frame->n_timings, &dec);
+    ir_button_free(&app.pending_button);
+    memset(&app.pending_button, 0, sizeof(app.pending_button));
 
-    if(decoded) {
+    if(frame->decoded) {
+        IrDecoded dec = {0};
+        dec.source = IR_DECODED_FLIPPER;
+        const char *name = infrared_get_protocol_name(frame->message.protocol);
+        if(name) {
+            strncpy(dec.protocol, name, sizeof(dec.protocol) - 1);
+        }
+        dec.address = frame->message.address;
+        dec.command = frame->message.command;
+        dec.repeat  = frame->message.repeat;
         app.last_decoded = dec;
         app.last_decoded_valid = true;
-        ir_button_free(&app.pending_button);
-        memset(&app.pending_button, 0, sizeof(app.pending_button));
 
         IrHistoryEntry hist = {
             .timestamp_us = esp_timer_get_time(),
@@ -116,43 +129,31 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         snprintf(hist.protocol, sizeof(hist.protocol), "%s", dec.protocol);
         ir_history_append(&hist);
 
-        if(dec.source == IR_DECODED_FLIPPER) {
-            app.pending_button.signal.type = INFRARED_SIGNAL_PARSED;
-            snprintf(app.pending_button.signal.parsed.protocol,
-                     sizeof(app.pending_button.signal.parsed.protocol),
-                     "%s", dec.protocol);
-            app.pending_button.signal.parsed.address = dec.address;
-            app.pending_button.signal.parsed.command = dec.command;
-        } else {
-            app.pending_button.signal.type = INFRARED_SIGNAL_RAW;
-            app.pending_button.signal.raw.freq_hz  = 38000;
-            app.pending_button.signal.raw.duty_pct = 33;
-            app.pending_button.signal.raw.timings = malloc(frame->n_timings * sizeof(uint16_t));
-            if(app.pending_button.signal.raw.timings) {
-                memcpy(app.pending_button.signal.raw.timings, frame->timings,
-                       frame->n_timings * sizeof(uint16_t));
-                app.pending_button.signal.raw.n_timings = frame->n_timings;
-            }
-        }
+        app.pending_button.signal.type = INFRARED_SIGNAL_PARSED;
+        snprintf(app.pending_button.signal.parsed.protocol,
+                 sizeof(app.pending_button.signal.parsed.protocol),
+                 "%s", dec.protocol);
+        app.pending_button.signal.parsed.address = dec.address;
+        app.pending_button.signal.parsed.command = dec.command;
         app.pending_valid = true;
 
-        if(app.pending_raw_timings) free(app.pending_raw_timings);
-        app.pending_raw_timings = malloc(frame->n_timings * sizeof(uint16_t));
-        if(app.pending_raw_timings) {
-            memcpy(app.pending_raw_timings, frame->timings,
-                   frame->n_timings * sizeof(uint16_t));
-            app.pending_raw_n = frame->n_timings;
+        if(app.pending_raw_timings) { free(app.pending_raw_timings); app.pending_raw_timings = NULL; }
+        if(frame->n_timings > 0) {
+            app.pending_raw_timings = malloc(frame->n_timings * sizeof(uint16_t));
+            if(app.pending_raw_timings) {
+                memcpy(app.pending_raw_timings, frame->timings,
+                       frame->n_timings * sizeof(uint16_t));
+                app.pending_raw_n = frame->n_timings;
+            }
         } else {
             app.pending_raw_n = 0;
         }
 
         scene_manager_handle_custom_event(&app.scene_mgr, IR_EVT_RX_DECODED);
-    } else {
+    } else if(frame->n_timings >= 8) {
         app.last_decoded_valid = false;
-        ir_button_free(&app.pending_button);
-        memset(&app.pending_button, 0, sizeof(app.pending_button));
         app.pending_button.signal.type = INFRARED_SIGNAL_RAW;
-        app.pending_button.signal.raw.freq_hz = 38000;
+        app.pending_button.signal.raw.freq_hz  = frame->frequency ? frame->frequency : 38000;
         app.pending_button.signal.raw.duty_pct = 33;
         app.pending_button.signal.raw.timings = malloc(frame->n_timings * sizeof(uint16_t));
         if(app.pending_button.signal.raw.timings) {
@@ -160,6 +161,15 @@ static void rx_drain_timer_cb(lv_timer_t *t)
                    frame->n_timings * sizeof(uint16_t));
             app.pending_button.signal.raw.n_timings = frame->n_timings;
             app.pending_valid = true;
+
+            if(app.pending_raw_timings) free(app.pending_raw_timings);
+            app.pending_raw_timings = malloc(frame->n_timings * sizeof(uint16_t));
+            if(app.pending_raw_timings) {
+                memcpy(app.pending_raw_timings, frame->timings,
+                       frame->n_timings * sizeof(uint16_t));
+                app.pending_raw_n = frame->n_timings;
+            }
+
             scene_manager_handle_custom_event(&app.scene_mgr, IR_EVT_RX_RAW);
         }
     }
@@ -196,6 +206,10 @@ static void on_init(void)
     view_dispatcher_set_scene_manager(app.view_dispatcher, &app.scene_mgr);
 
     app.rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(IrRxFrame *));
+    app.worker   = infrared_worker_alloc();
+    if(app.worker) {
+        infrared_worker_rx_set_received_signal_callback(app.worker, worker_signal_cb, NULL);
+    }
     ir_store_init();
     macro_store_init();
     ir_settings_load();
@@ -246,7 +260,7 @@ static void on_leave(void)
     scene_manager_stop(&app.scene_mgr);
 
     if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
-    hw_ir_rx_stop();
+    if(app.worker) infrared_worker_rx_stop(app.worker);
     if(app.rx_queue) {
         IrRxFrame *frame = NULL;
         while(xQueueReceive(app.rx_queue, &frame, 0) == pdTRUE) {
@@ -298,7 +312,7 @@ void ir_app_rx_pause_seed_initial(void)
 void ir_app_rx_pause(void)
 {
     if(s_rx_pause_depth++ > 0) return;
-    hw_ir_rx_stop();
+    if(app.worker) infrared_worker_rx_stop(app.worker);
     if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
     if(app.rx_queue) {
         IrRxFrame *frame = NULL;
@@ -313,7 +327,7 @@ void ir_app_rx_resume(void)
     if(s_rx_pause_depth == 0) return;
     if(--s_rx_pause_depth > 0) return;
     if(app.rx_queue) xQueueReset(app.rx_queue);
-    hw_ir_rx_start(rx_worker_cb, NULL);
+    if(app.worker) infrared_worker_rx_start(app.worker);
     if(app.rx_drain_timer) lv_timer_resume(app.rx_drain_timer);
 }
 

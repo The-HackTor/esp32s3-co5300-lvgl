@@ -246,6 +246,8 @@ static QueueHandle_t         s_rx_evt_queue;
 static TaskHandle_t          s_rx_task;
 static hw_ir_rx_cb_t         s_rx_user_cb;
 static void                 *s_rx_user_ctx;
+static hw_ir_rx_edge_cb_t    s_rx_edge_cb;
+static void                 *s_rx_edge_ctx;
 static bool                  s_rx_running;
 static bool                  s_rx_chan_enabled;
 static SemaphoreHandle_t     s_rx_done_sem;
@@ -561,45 +563,45 @@ static void rx_task(void *arg)
         }
         if(!s_rx_running) break;
 
-        size_t out_n = 0;
-        bool started = false;
-        for(size_t i = 0; i < evt.count; i++) {
-            const rmt_symbol_word_t s = evt.symbols[i];
+        if(s_rx_edge_cb) {
+            uint32_t edges = 0;
+            for(size_t i = 0; i < evt.count; i++) {
+                const rmt_symbol_word_t s = evt.symbols[i];
+                if(s.duration0 == 0) break;
+                /* TSOP14438 idles HIGH; level=0 = IR present = mark.
+                 * Pass MARK semantics to caller. */
+                s_rx_edge_cb(s.level0 == 0, s.duration0, false, s_rx_edge_ctx);
+                edges++;
+                if(s.duration1 == 0) break;
+                s_rx_edge_cb(s.level1 == 0, s.duration1, false, s_rx_edge_ctx);
+                edges++;
+            }
+            if(edges > 0) {
+                s_rx_edge_cb(false, 0, true, s_rx_edge_ctx);
+            }
+        } else if(s_rx_user_cb) {
+            size_t out_n = 0;
+            bool started = false;
+            for(size_t i = 0; i < evt.count; i++) {
+                const rmt_symbol_word_t s = evt.symbols[i];
 
-            /* phase 0 */
-            if(s.duration0 == 0) break;
-            const bool ph0_is_mark = (s.level0 == 0); /* TSOP active-low */
-            if(!started) {
-                if(ph0_is_mark) {
+                if(s.duration0 == 0) break;
+                const bool ph0_is_mark = (s.level0 == 0);
+                if(!started) {
+                    if(ph0_is_mark) { timings[out_n++] = s.duration0; started = true; }
+                } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
                     timings[out_n++] = s.duration0;
-                    started = true;
-                }
-                /* else: leading space, skip */
-            } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
-                timings[out_n++] = s.duration0;
-            } else {
-                break;
-            }
+                } else break;
 
-            /* phase 1 */
-            if(s.duration1 == 0) break;
-            if(!started) {
-                /* phase0 was a leading space we skipped; phase1 should be
-                 * the first mark. */
-                const bool ph1_is_mark = (s.level1 == 0);
-                if(ph1_is_mark) {
+                if(s.duration1 == 0) break;
+                if(!started) {
+                    const bool ph1_is_mark = (s.level1 == 0);
+                    if(ph1_is_mark) { timings[out_n++] = s.duration1; started = true; }
+                } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
                     timings[out_n++] = s.duration1;
-                    started = true;
-                }
-            } else if(out_n + 1 < sizeof(timings)/sizeof(timings[0])) {
-                timings[out_n++] = s.duration1;
-            } else {
-                break;
+                } else break;
             }
-        }
-
-        if(s_rx_user_cb && out_n >= 2) {
-            s_rx_user_cb(timings, out_n, s_rx_user_ctx);
+            if(out_n >= 2) s_rx_user_cb(timings, out_n, s_rx_user_ctx);
         }
 
         if(s_rx_running) {
@@ -618,34 +620,35 @@ static void rx_task(void *arg)
     vTaskDelete(NULL);
 }
 
-void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
+static void rx_channel_init_once(void)
 {
-    if(!s_inited || s_rx_running) return;
+    if(s_rx_chan != NULL) return;
+    const rmt_rx_channel_config_t rx_cfg = {
+        .gpio_num          = IR_RX_GPIO,
+        .clk_src           = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz     = IR_RMT_RESOLUTION,
+        .mem_block_symbols = IR_RX_MEM_SYMBOLS,
+        .flags.invert_in   = false,
+        .flags.with_dma    = false,
+    };
+    ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_cfg, &s_rx_chan));
 
-    if(s_rx_chan == NULL) {
-        const rmt_rx_channel_config_t rx_cfg = {
-            .gpio_num          = IR_RX_GPIO,
-            .clk_src           = RMT_CLK_SRC_DEFAULT,
-            .resolution_hz     = IR_RMT_RESOLUTION,
-            .mem_block_symbols = IR_RX_MEM_SYMBOLS,
-            .flags.invert_in   = false,
-            .flags.with_dma    = false,
-        };
-        ESP_ERROR_CHECK(rmt_new_rx_channel(&rx_cfg, &s_rx_chan));
+    s_rx_buf = malloc(IR_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t));
+    assert(s_rx_buf);
 
-        s_rx_buf = malloc(IR_RX_MAX_SYMBOLS * sizeof(rmt_symbol_word_t));
-        assert(s_rx_buf);
+    const rmt_rx_event_callbacks_t cbs = { .on_recv_done = rx_done_isr };
+    ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(s_rx_chan, &cbs, NULL));
 
-        const rmt_rx_event_callbacks_t cbs = { .on_recv_done = rx_done_isr };
-        ESP_ERROR_CHECK(rmt_rx_register_event_callbacks(s_rx_chan, &cbs, NULL));
+    s_rx_evt_queue = xQueueCreate(8, sizeof(rx_evt_t));
+    assert(s_rx_evt_queue);
 
-        s_rx_evt_queue = xQueueCreate(8, sizeof(rx_evt_t));
-        assert(s_rx_evt_queue);
+    s_rx_done_sem = xSemaphoreCreateBinary();
+    assert(s_rx_done_sem);
+}
 
-        s_rx_done_sem = xSemaphoreCreateBinary();
-        assert(s_rx_done_sem);
-    }
-
+static void rx_start_common(void)
+{
+    rx_channel_init_once();
     if(!s_rx_chan_enabled) {
         esp_err_t err = rmt_enable(s_rx_chan);
         if(err != ESP_OK) {
@@ -653,43 +656,63 @@ void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
             return;
         }
         s_rx_chan_enabled = true;
-        ESP_LOGI(TAG, "rmt_enable RX OK");
     }
-
     xQueueReset(s_rx_evt_queue);
-    /* Drop any stale give from a prior cycle (e.g. previous _stop timed out
-     * but rx_task eventually finished and gave the sem afterward). */
     xSemaphoreTake(s_rx_done_sem, 0);
-
-    s_rx_user_cb  = cb;
-    s_rx_user_ctx = ctx;
-    s_rx_running  = true;
-
+    s_rx_running = true;
     xTaskCreatePinnedToCore(rx_task, "hw_ir_rx", 4096, NULL,
                             tskIDLE_PRIORITY + 4, &s_rx_task, 1);
     ESP_LOGI(TAG, "RX start: GPIO%d, %u-symbol buffer, EOF=%lu ms",
              IR_RX_GPIO, IR_RX_MAX_SYMBOLS, (unsigned long)(IR_RX_TIMEOUT_NS / 1000000ULL));
 }
 
-void hw_ir_rx_stop(void)
+static void rx_stop_common(void)
 {
     if(!s_rx_running) return;
     s_rx_running = false;
     rx_evt_t sentinel = { .symbols = NULL, .count = 0 };
     xQueueSend(s_rx_evt_queue, &sentinel, 0);
-    s_rx_user_cb  = NULL;
-    s_rx_user_ctx = NULL;
 
-    if(s_rx_done_sem) {
-        xSemaphoreTake(s_rx_done_sem, pdMS_TO_TICKS(500));
-    }
+    if(s_rx_done_sem) xSemaphoreTake(s_rx_done_sem, pdMS_TO_TICKS(500));
 
     if(s_rx_chan && s_rx_chan_enabled) {
         esp_err_t err = rmt_disable(s_rx_chan);
-        if(err != ESP_OK) {
-            ESP_LOGW(TAG, "rmt_disable: %s", esp_err_to_name(err));
-        }
+        if(err != ESP_OK) ESP_LOGW(TAG, "rmt_disable: %s", esp_err_to_name(err));
         s_rx_chan_enabled = false;
     }
     ESP_LOGI(TAG, "RX stop");
+}
+
+void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx)
+{
+    if(!s_inited || s_rx_running) return;
+    s_rx_user_cb  = cb;
+    s_rx_user_ctx = ctx;
+    s_rx_edge_cb  = NULL;
+    s_rx_edge_ctx = NULL;
+    rx_start_common();
+}
+
+void hw_ir_rx_stop(void)
+{
+    rx_stop_common();
+    s_rx_user_cb  = NULL;
+    s_rx_user_ctx = NULL;
+}
+
+void hw_ir_rx_edge_start(hw_ir_rx_edge_cb_t cb, void *ctx)
+{
+    if(!s_inited || s_rx_running) return;
+    s_rx_edge_cb  = cb;
+    s_rx_edge_ctx = ctx;
+    s_rx_user_cb  = NULL;
+    s_rx_user_ctx = NULL;
+    rx_start_common();
+}
+
+void hw_ir_rx_edge_stop(void)
+{
+    rx_stop_common();
+    s_rx_edge_cb  = NULL;
+    s_rx_edge_ctx = NULL;
 }

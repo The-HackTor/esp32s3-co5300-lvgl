@@ -19,6 +19,7 @@
 #include "store/macro_store.h"
 #include "lib/infrared/ir_codecs.h"
 #include "lib/infrared/ac/ac_brand.h"
+#include "lib/infrared/worker/infrared_worker.h"
 
 #define IR_RX_TIMINGS_MAX  2048
 
@@ -33,8 +34,11 @@ typedef enum {
 } IrViewId;
 
 typedef struct {
-    uint16_t timings[IR_RX_TIMINGS_MAX];
-    size_t   n_timings;
+    bool            decoded;
+    InfraredMessage message;
+    size_t          n_timings;
+    uint16_t        timings[IR_RX_TIMINGS_MAX];
+    uint32_t        frequency;
 } IrRxFrame;
 
 typedef struct {
@@ -68,6 +72,7 @@ typedef struct {
 
     QueueHandle_t   rx_queue;
     lv_timer_t     *rx_drain_timer;
+    InfraredWorker *worker;
     IrDecoded       last_decoded;
     bool            last_decoded_valid;
 

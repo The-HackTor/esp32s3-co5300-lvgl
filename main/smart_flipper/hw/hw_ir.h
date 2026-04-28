@@ -65,6 +65,17 @@ typedef void (*hw_ir_rx_cb_t)(const uint16_t *timings, size_t n_timings, void *c
 void hw_ir_rx_start(hw_ir_rx_cb_t cb, void *ctx);
 void hw_ir_rx_stop(void);
 
+/* Per-edge callback. Called from the rx_task once per (level, duration)
+ * edge as captured. level is the actual TSOP-line level; mirrors Flipper's
+ * furi_hal_infrared rx_callback contract so the decoder receives real
+ * polarity instead of parity-inferred values. eof is true when the burst
+ * ended (RMT EOF timeout) and the worker should run end-of-frame
+ * finalization. */
+typedef void (*hw_ir_rx_edge_cb_t)(bool level, uint32_t duration_us, bool eof, void *ctx);
+
+void hw_ir_rx_edge_start(hw_ir_rx_edge_cb_t cb, void *ctx);
+void hw_ir_rx_edge_stop(void);
+
 /* True if the last TX completed within the given microsecond window.
  * Use to gate RX frames that are likely just self-echo from our own LEDs
  * leaking into the TSOP. window_us=100000 (100 ms) is a safe default. */

@@ -39,6 +39,7 @@ idf_component_register(
         "smart_flipper/lib/infrared/encoder_decoder/rca"
         "smart_flipper/lib/infrared/codec_db"
         "smart_flipper/lib/infrared/universal_db"
+        "smart_flipper/lib/infrared/worker"
 )
 
 set_source_files_properties(
