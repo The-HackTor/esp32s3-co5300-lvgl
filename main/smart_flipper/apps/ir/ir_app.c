@@ -213,13 +213,18 @@ static void on_enter(void)
     view_text_input_reset(app.text_input);
 
     if(app.rx_queue) xQueueReset(app.rx_queue);
-    hw_ir_rx_start(rx_worker_cb, NULL);
 
+    /* Create the drain timer (paused) but DO NOT start hw_ir_rx. Learn scene
+     * is the only RX consumer; it calls ir_app_rx_resume on enter and
+     * ir_app_rx_pause on exit. Pre-arming the refcount to 1 here means
+     * Learn's first resume drops it to 0 and starts RX, and any other scene
+     * that wraps its TX in pause/resume sees the expected balanced semantics
+     * (depth never goes negative, RX never wakes outside Learn). */
     if(!app.rx_drain_timer) {
         app.rx_drain_timer = lv_timer_create(rx_drain_timer_cb, RX_DRAIN_INTERVAL_MS, NULL);
-    } else {
-        lv_timer_resume(app.rx_drain_timer);
     }
+    lv_timer_pause(app.rx_drain_timer);
+    ir_app_rx_pause_seed_initial();
 
     scene_manager_init(&app.scene_mgr, &ir_scene_handlers, &app);
     scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
@@ -268,8 +273,18 @@ static SceneManager *get_scene_manager(void) { return &app.scene_mgr; }
 IrApp *ir_app_get(void) { return &app; }
 
 /* Refcounted: pause and resume nest safely so the brute scene + a TX
- * Self-Test fired from inside it (or any future caller) compose. */
+ * Self-Test fired from inside it (or any future caller) compose. App
+ * boots with depth=1 (RX off); only Learn scene drops it to 0. */
 static int s_rx_pause_depth;
+
+void ir_app_rx_pause_seed_initial(void)
+{
+    /* Boot-time pre-arm: bumps refcount to 1 without touching hw_ir_rx
+     * (which has never been started yet, so a pair of stop/start would
+     * be wasted work). Learn::on_enter's resume then drops it to 0 and
+     * starts RX for the first time. */
+    s_rx_pause_depth = 1;
+}
 
 void ir_app_rx_pause(void)
 {

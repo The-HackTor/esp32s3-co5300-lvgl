@@ -98,6 +98,14 @@ void ir_scene_learn_on_enter(void *ctx)
 
     app->learn_redraw_timer = lv_timer_create(learn_redraw_cb, 100, app);
 
+    /* RX is OWNED by Learn scene -- mirrors Flipper's per-scene worker
+     * lifecycle. App boots with RX paused (initial pause in app on_init);
+     * Learn enables here and disables on exit so LearnSuccess / EnterName /
+     * Done never get spurious RX events that would race with the scene
+     * transition or keep mutating app.pending_button while the success
+     * view is rendering. */
+    ir_app_rx_resume();
+
     view_dispatcher_switch_to_view(app->view_dispatcher, IrViewCustom);
     hw_rgb_set(0, 0, 40);
 }
@@ -123,6 +131,11 @@ void ir_scene_learn_on_exit(void *ctx)
 {
     IrApp *app = ctx;
     hw_rgb_off();
+
+    /* Stop RX BEFORE tearing down the view: prevents rx_drain_timer_cb from
+     * firing IR_EVT_RX_DECODED into the next scene mid-transition and from
+     * mutating app.pending_button while LearnSuccess is still rendering. */
+    ir_app_rx_pause();
 
     if(app->learn_redraw_timer) {
         lv_timer_delete(app->learn_redraw_timer);

@@ -112,4 +112,8 @@ void   ir_app_rx_resume(void);
 /* lv_timer_cb_t-shaped helper for one-shot resume-then-self-delete. */
 void   ir_app_rx_resume_then_delete_timer(lv_timer_t *t);
 
+/* Pre-arms the RX pause refcount to 1 at boot so RX stays off until the
+ * first ir_app_rx_resume() (currently called only from Learn::on_enter). */
+void   ir_app_rx_pause_seed_initial(void);
+
 #endif
