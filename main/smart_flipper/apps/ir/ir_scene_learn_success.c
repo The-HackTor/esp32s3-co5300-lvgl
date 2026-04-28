@@ -47,13 +47,38 @@ static void btn_send(void *ctx)
     IrApp *app = ctx;
     if(!app->pending_valid) return;
 
-    if(app->pending_raw_timings && app->pending_raw_n > 0) {
-        hw_rgb_set(255, 0, 0);
-        hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, 38000);
-        hw_rgb_off();
-        return;
+    /* Prefer the canonical encoded form when we have a parsed decode.
+     * pending_raw_timings is the verbatim TSOP capture: the first sample's
+     * mark/space identity depends on when the RMT RX channel armed relative
+     * to the incoming frame, and the carrier was hardcoded to 38 kHz
+     * regardless of what was actually captured. Encoding from the decoded
+     * (protocol, address, command) tuple produces a clean frame identical
+     * to what a real remote emits. */
+    if(app->last_decoded_valid &&
+       app->pending_button.signal.type == INFRARED_SIGNAL_PARSED) {
+        uint16_t *enc_t = NULL;
+        size_t    enc_n = 0;
+        uint32_t  enc_hz = 38000;
+        esp_err_t err = ir_codecs_encode(&app->last_decoded, &enc_t, &enc_n, &enc_hz);
+        if(err == ESP_OK) {
+            hw_rgb_set(255, 0, 0);
+            hw_ir_send_raw(enc_t, enc_n, enc_hz);
+            hw_rgb_off();
+            free(enc_t);
+            return;
+        }
+        /* Encode failed (codec_db best-fit without a sender, etc.) -- fall
+         * through to raw replay so the user can still try the captured
+         * envelope. */
+        if(enc_t) free(enc_t);
     }
-    if(app->pending_button.signal.type == INFRARED_SIGNAL_RAW) {
+
+    /* Raw fallback. Use the actual captured carrier when available rather
+     * than always 38 kHz; the pending_button.signal.raw.freq_hz is the
+     * authoritative value rx_drain_timer_cb wrote when the frame arrived. */
+    if(app->pending_button.signal.type == INFRARED_SIGNAL_RAW &&
+       app->pending_button.signal.raw.timings &&
+       app->pending_button.signal.raw.n_timings > 0) {
         const InfraredSignalRaw *r = &app->pending_button.signal.raw;
         hw_rgb_set(255, 0, 0);
         hw_ir_send_raw(r->timings, r->n_timings,
@@ -62,23 +87,20 @@ static void btn_send(void *ctx)
         return;
     }
 
-    uint16_t *enc_t = NULL;
-    size_t    enc_n = 0;
-    uint32_t  enc_hz = 38000;
-    esp_err_t err = ir_codecs_encode(&app->last_decoded, &enc_t, &enc_n, &enc_hz);
-    if(err == ESP_OK) {
+    if(app->pending_raw_timings && app->pending_raw_n > 0) {
+        uint32_t hz = app->pending_button.signal.raw.freq_hz
+                          ? app->pending_button.signal.raw.freq_hz : 38000;
         hw_rgb_set(255, 0, 0);
-        hw_ir_send_raw(enc_t, enc_n, enc_hz);
+        hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, hz);
         hw_rgb_off();
-        free(enc_t);
         return;
     }
 
     view_popup_reset(app->popup);
     view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
-    view_popup_set_header(app->popup, "Encoder Pending", COLOR_YELLOW);
+    view_popup_set_header(app->popup, "Nothing to send", COLOR_YELLOW);
     view_popup_set_text(app->popup,
-        "codec_db protocols need a per-protocol sender.");
+        "Capture a signal first or pick a different protocol.");
     view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewPopup,
                                             (uint32_t)TransitionFadeIn, 120);
 }
