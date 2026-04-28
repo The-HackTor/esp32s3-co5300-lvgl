@@ -34,29 +34,44 @@ static void copy_decoded(IrDecoded *out, const InfraredMessage *msg)
     out->raw_value = 0;
 }
 
+/* Singleton decoder handle, owned for the lifetime of the app.
+ *
+ * Original implementation alloc'd a fresh handler per RX frame -- ~20 small
+ * mallocs and ~20 frees on every 30ms drain cycle under repeated captures.
+ * That churn kept tripping a latent TLSF corruption (StoreProhibited at
+ * insert_free_block with 0xa5a5a5a5 in the free-list head) on the rc6 free
+ * path. Caching the handler eliminates the alloc/free pressure entirely,
+ * fixes the recurring crash, and is faster.
+ *
+ * Caller is the LVGL task only (rx_drain_timer_cb), so single-threaded
+ * access is enough -- no mutex needed. Each call resets state via
+ * infrared_reset_decoder before feeding new timings. */
+static InfraredDecoderHandler *s_decode_handler;
+
 static bool decode_flipper(const uint16_t *timings, size_t n_timings, IrDecoded *out)
 {
-    InfraredDecoderHandler *handler = infrared_alloc_decoder();
-    if(!handler) return false;
+    if(!s_decode_handler) {
+        s_decode_handler = infrared_alloc_decoder();
+        if(!s_decode_handler) return false;
+    } else {
+        infrared_reset_decoder(s_decode_handler);
+    }
 
     /* Feed alternating (level, duration) pairs. Mark on even indices. */
     for(size_t i = 0; i < n_timings; i++) {
         const bool level = ((i & 1) == 0);
-        const InfraredMessage *msg = infrared_decode(handler, level, timings[i]);
+        const InfraredMessage *msg = infrared_decode(s_decode_handler, level, timings[i]);
         if(msg) {
             copy_decoded(out, msg);
-            infrared_free_decoder(handler);
             return true;
         }
     }
     /* SIRC family confirms the message only at end-of-frame timeout. */
-    const InfraredMessage *msg = infrared_check_decoder_ready(handler);
+    const InfraredMessage *msg = infrared_check_decoder_ready(s_decode_handler);
     if(msg) {
         copy_decoded(out, msg);
-        infrared_free_decoder(handler);
         return true;
     }
-    infrared_free_decoder(handler);
     return false;
 }
 
