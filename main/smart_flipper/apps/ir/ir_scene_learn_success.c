@@ -35,6 +35,8 @@ static uint32_t sum_durations_us(const uint16_t *t, size_t n)
 static IrUniversalCategory s_match_cat;
 static bool                s_match_valid;
 static char                s_match_label[IR_REMOTE_NAME_MAX];
+static IrMatchConfidence   s_match_conf;
+static uint16_t            s_match_group_size;
 
 static void btn_save(void *ctx)
 {
@@ -135,6 +137,8 @@ void ir_scene_learn_success_on_enter(void *ctx)
 
     s_match_valid = false;
     s_match_label[0] = '\0';
+    s_match_conf = IR_MATCH_NONE;
+    s_match_group_size = 0;
 
     lv_color_t accent = COLOR_YELLOW;
     char buf[48];
@@ -191,15 +195,21 @@ void ir_scene_learn_success_on_enter(void *ctx)
 
         s_match_valid = ir_universal_index_match(app->last_decoded.protocol,
                                                  app->last_decoded.address,
+                                                 app->last_decoded.command,
                                                  &s_match_cat,
                                                  s_match_label,
-                                                 sizeof(s_match_label));
+                                                 sizeof(s_match_label),
+                                                 &s_match_conf,
+                                                 &s_match_group_size);
         if(s_match_valid) {
-            char match_buf[48];
-            snprintf(match_buf, sizeof(match_buf), "%s (%s)",
+            char match_buf[64];
+            const char *tag = (s_match_conf == IR_MATCH_EXACT) ? "exact" : "group";
+            snprintf(match_buf, sizeof(match_buf), "%s %s (%u %s)",
                      ir_universal_category_label(s_match_cat),
-                     s_match_label);
-            view_info_add_field(app->info, "Match", match_buf, COLOR_GREEN);
+                     s_match_label, (unsigned)s_match_group_size, tag);
+            lv_color_t match_color = (s_match_conf == IR_MATCH_EXACT)
+                                         ? COLOR_GREEN : COLOR_CYAN;
+            view_info_add_field(app->info, "Match", match_buf, match_color);
         }
     } else {
         view_info_set_header(app->info, "Raw Capture", COLOR_YELLOW);
