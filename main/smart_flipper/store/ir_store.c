@@ -196,15 +196,30 @@ esp_err_t ir_remote_rename(IrRemote *r, const char *new_name)
     if(err != ESP_OK) return err;
 
     char old_path[IR_REMOTE_PATH_MAX];
+    char old_name[IR_REMOTE_NAME_MAX];
     snprintf(old_path, sizeof(old_path), "%s", r->path);
+    snprintf(old_name, sizeof(old_name), "%s", r->name);
+
+    /* FAT is case-preserving but case-insensitive, so a case-only rename
+     * targets the same file. For any other rename, refuse if the
+     * destination already exists -- otherwise ir_remote_save would
+     * silently overwrite an unrelated remote. */
+    if(strcasecmp(old_path, new_path) != 0) {
+        struct stat st;
+        if(stat(new_path, &st) == 0) return ESP_ERR_INVALID_STATE;
+    }
 
     snprintf(r->name, sizeof(r->name), "%s", new_name);
     snprintf(r->path, sizeof(r->path), "%s", new_path);
 
     err = ir_remote_save(r);
-    if(err != ESP_OK) return err;
+    if(err != ESP_OK) {
+        snprintf(r->name, sizeof(r->name), "%s", old_name);
+        snprintf(r->path, sizeof(r->path), "%s", old_path);
+        return err;
+    }
 
-    if(old_path[0] && strcmp(old_path, new_path) != 0) {
+    if(old_path[0] && strcasecmp(old_path, new_path) != 0) {
         unlink(old_path);
     }
     r->dirty = false;

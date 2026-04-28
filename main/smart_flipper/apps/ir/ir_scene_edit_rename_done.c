@@ -39,6 +39,11 @@ void ir_scene_edit_rename_done_on_enter(void *ctx)
         view_popup_set_icon(app->popup, LV_SYMBOL_OK, COLOR_GREEN);
         view_popup_set_header(app->popup, "Renamed", COLOR_GREEN);
         view_popup_set_text(app->popup, new_name);
+    } else if(err == ESP_ERR_INVALID_STATE) {
+        view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_YELLOW);
+        view_popup_set_header(app->popup, "Name in Use", COLOR_YELLOW);
+        view_popup_set_text(app->popup,
+            "A remote with that name already exists.");
     } else {
         view_popup_set_icon(app->popup, LV_SYMBOL_WARNING, COLOR_RED);
         view_popup_set_header(app->popup, "Rename Failed", COLOR_RED);
