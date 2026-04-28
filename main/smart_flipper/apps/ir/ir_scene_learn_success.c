@@ -169,28 +169,12 @@ void ir_scene_learn_success_on_enter(void *ctx)
         view_info_add_field(app->info, "Address", addr_buf, COLOR_PRIMARY);
         view_info_add_field(app->info, "Command", cmd_buf, COLOR_PRIMARY);
 
-        /* Decimal command often matches what manufacturers print in service
-         * docs (e.g. NEC cmd 0x12 == "channel 18"). Helpful for hackers
-         * cross-referencing against forum dumps. */
-        snprintf(buf, sizeof(buf), "%lu", (unsigned long)app->last_decoded.command);
-        view_info_add_field(app->info, "Cmd (dec)", buf, COLOR_SECONDARY);
-
         if(infrared_is_protocol_valid(p)) {
             uint32_t hz = infrared_get_protocol_frequency(p);
             snprintf(buf, sizeof(buf), "%lu.%02lu kHz",
                      (unsigned long)(hz / 1000),
                      (unsigned long)((hz % 1000) / 10));
             view_info_add_field(app->info, "Carrier", buf, COLOR_SECONDARY);
-        }
-
-        if(app->pending_raw_timings && app->pending_raw_n > 0) {
-            uint32_t total_us = sum_durations_us(app->pending_raw_timings,
-                                                 app->pending_raw_n);
-            snprintf(buf, sizeof(buf), "%u edges, %lu.%lu ms",
-                     (unsigned)app->pending_raw_n,
-                     (unsigned long)(total_us / 1000),
-                     (unsigned long)((total_us % 1000) / 100));
-            view_info_add_field(app->info, "Frame", buf, COLOR_SECONDARY);
         }
 
         s_match_valid = ir_universal_index_match(app->last_decoded.protocol,
@@ -201,16 +185,6 @@ void ir_scene_learn_success_on_enter(void *ctx)
                                                  sizeof(s_match_label),
                                                  &s_match_conf,
                                                  &s_match_group_size);
-        if(s_match_valid) {
-            char match_buf[64];
-            const char *tag = (s_match_conf == IR_MATCH_EXACT) ? "exact" : "group";
-            snprintf(match_buf, sizeof(match_buf), "%s %s (%u %s)",
-                     ir_universal_category_label(s_match_cat),
-                     s_match_label, (unsigned)s_match_group_size, tag);
-            lv_color_t match_color = (s_match_conf == IR_MATCH_EXACT)
-                                         ? COLOR_GREEN : COLOR_CYAN;
-            view_info_add_field(app->info, "Match", match_buf, match_color);
-        }
     } else {
         view_info_set_header(app->info, "Raw Capture", COLOR_YELLOW);
         view_info_add_pill(app->info, "Raw only", COLOR_ORANGE);

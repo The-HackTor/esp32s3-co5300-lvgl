@@ -119,19 +119,19 @@ void view_info_add_field(ViewInfo *info, const char *key, const char *value, lv_
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_pad_ver(row, 6, 0);
+    lv_obj_set_style_pad_ver(row, 2, 0);
     lv_obj_set_style_pad_hor(row, 4, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *klbl = lv_label_create(row);
     lv_label_set_text(klbl, key);
-    lv_obj_set_style_text_font(klbl, FONT_TITLE, 0);
+    lv_obj_set_style_text_font(klbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(klbl, COLOR_SECONDARY, 0);
     lv_obj_align(klbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *vlbl = lv_label_create(row);
     lv_label_set_text(vlbl, value);
-    lv_obj_set_style_text_font(vlbl, FONT_TITLE, 0);
+    lv_obj_set_style_text_font(vlbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(vlbl, color, 0);
     lv_obj_align(vlbl, LV_ALIGN_RIGHT_MID, 0, 0);
 }
@@ -186,7 +186,7 @@ void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
                             size_t n_timings, lv_color_t color)
 {
     lv_obj_t *row = lv_obj_create(info->scroll);
-    lv_obj_set_size(row, LV_PCT(100), 64);
+    lv_obj_set_size(row, LV_PCT(100), 44);
     lv_obj_set_style_bg_color(row, COLOR_CARD_BG, 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(row, 8, 0);
@@ -207,7 +207,7 @@ void view_info_add_waveform(ViewInfo *info, const uint16_t *timings,
     if(total == 0) return;
 
     const int32_t avail_w = DISP_W - 80 - 24;
-    const int32_t mark_h  = 48;
+    const int32_t mark_h  = 30;
     const int32_t space_h = 4;
 
     for(size_t i = 0; i < cap; i++) {
@@ -285,15 +285,15 @@ void view_info_add_button(ViewInfo *info, const char *text, lv_color_t color,
     bctx->ctx = ctx;
 
     lv_obj_t *btn = lv_button_create(info->scroll);
-    lv_obj_set_size(btn, 180, 56);
+    lv_obj_set_size(btn, 180, 48);
     lv_obj_set_style_bg_color(btn, color, 0);
-    lv_obj_set_style_radius(btn, 28, 0);
+    lv_obj_set_style_radius(btn, 24, 0);
     lv_obj_set_style_shadow_width(btn, 0, 0);
     lv_obj_add_event_cb(btn, btn_clicked, LV_EVENT_CLICKED, bctx);
 
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_font(lbl, FONT_MENU, 0);
+    lv_obj_set_style_text_font(lbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(lbl, COLOR_PRIMARY, 0);
     lv_obj_center(lbl);
 }
