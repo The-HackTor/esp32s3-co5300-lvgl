@@ -10,6 +10,9 @@
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_rom_gpio.h"
+#include "soc/gpio_struct.h"
+#include "soc/gpio_sig_map.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,6 +51,24 @@ static bool                  s_tx_invert_active;
 static int64_t               s_last_tx_done_us;
 static SemaphoreHandle_t     s_tx_mtx;
 static volatile bool         s_log_next_send;
+static uint32_t              s_rmt_out_signal;   /* RMT TX signal idx bound to IR_TX_GPIO */
+static bool                  s_rmt_out_invert;   /* matches s_tx_invert_active at bind time */
+
+/* Detach IR_TX_GPIO from RMT and pin it LOW via plain GPIO output. The
+ * NMOS gate sees a hard ground -- LED off, no carrier, no leakage. */
+static inline void tx_gpio_park_low(void)
+{
+    esp_rom_gpio_connect_out_signal(IR_TX_GPIO, SIG_GPIO_OUT_IDX, false, false);
+    gpio_set_level(IR_TX_GPIO, 0);
+}
+
+/* Re-route IR_TX_GPIO back to the RMT TX signal so the next rmt_transmit
+ * actually drives the pin. */
+static inline void tx_gpio_attach_rmt(void)
+{
+    esp_rom_gpio_connect_out_signal(IR_TX_GPIO, s_rmt_out_signal,
+                                    s_rmt_out_invert, false);
+}
 
 void hw_ir_log_next_send(void) { s_log_next_send = true; }
 
@@ -361,36 +382,28 @@ void hw_ir_init(void)
 
     /* Park the carrier at duty=0 until the first TX. Bringing the channel
      * up with a 33%-duty 38 kHz carrier already configured leaves the
-     * RMT modulator running on GPIO16 from boot -- visible as a steady
-     * IR glow on a phone camera. Each hw_ir_send_raw applies the real
-     * carrier just-in-time, so disabling at init has zero functional
-     * cost. */
+     * RMT modulator running on GPIO16 from boot. Each hw_ir_send_raw
+     * applies the real carrier just-in-time, so disabling at init has
+     * zero functional cost. */
     ESP_ERROR_CHECK(apply_carrier(0));
     ESP_ERROR_CHECK(rmt_enable(s_tx_chan));
 
     s_tx_mtx = xSemaphoreCreateMutex();
     assert(s_tx_mtx);
 
-    /* On ESP32-S3 the RMT TX output level pre-first-transmit isn't
-     * guaranteed to be LOW -- with the NMOS gate this latches the IR
-     * LEDs ON at boot (visible as steady purple on a phone camera).
-     * Force the line LOW by issuing one minimal dummy symbol with
-     * eot_level=0; that latches the end-of-transmission level into
-     * the channel's idle output and every subsequent burst inherits
-     * the same eot_level. */
-    {
-        rmt_symbol_word_t silence = {
-            .level0 = 0, .duration0 = 1,
-            .level1 = 0, .duration1 = 1,
-        };
-        const rmt_transmit_config_t cfg = {
-            .loop_count = 0,
-            .flags.eot_level = 0,
-        };
-        ESP_ERROR_CHECK(rmt_transmit(s_tx_chan, s_copy_encoder,
-                                     &silence, sizeof(silence), &cfg));
-        ESP_ERROR_CHECK(rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(50)));
-    }
+    /* Capture the RMT TX signal idx that rmt_new_tx_channel just wired
+     * onto IR_TX_GPIO, then detach so the pin is plain GPIO LOW at
+     * idle. ESP32-S3 RMT doesn't guarantee a LOW idle level pre-first-
+     * transmit (and even post-transmit eot_level isn't honored on this
+     * silicon), so leaving the pin attached drives the NMOS gate HIGH
+     * via whatever the RMT modulator happens to output -- visible as
+     * steady purple on a phone camera. Mirror Flipper's approach
+     * (TIM1 alt-function bound only during TX): keep the pin parked
+     * LOW until hw_ir_send_raw / hw_ir_send_repeat_start re-attach. */
+    s_rmt_out_signal = GPIO.func_out_sel_cfg[IR_TX_GPIO].func_sel;
+    s_rmt_out_invert = GPIO.func_out_sel_cfg[IR_TX_GPIO].inv_sel;
+    gpio_set_direction(IR_TX_GPIO, GPIO_MODE_OUTPUT);
+    tx_gpio_park_low();
 
     s_inited = true;
     ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, carrier parked off until first send",
@@ -404,6 +417,9 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
     if(n_timings > IR_MAX_TIMINGS)      return ESP_ERR_INVALID_SIZE;
 
     if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, portMAX_DELAY);
+
+    /* Re-attach IR_TX_GPIO to the RMT signal just for this burst. */
+    tx_gpio_attach_rmt();
 
     const uint32_t req_hz = carrier_hz ? carrier_hz : 38000;
     esp_err_t err = apply_carrier(req_hz);
@@ -422,6 +438,7 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
                  dump > 6 ? timings[6] : 0, dump > 7 ? timings[7] : 0);
     }
     if(err != ESP_OK) {
+        tx_gpio_park_low();
         if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
         return err;
     }
@@ -462,19 +479,20 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
                        n_symbols * sizeof(symbols[0]), &tx_cfg);
     if(err != ESP_OK) {
         ESP_LOGE(TAG, "rmt_transmit: %s", esp_err_to_name(err));
+        tx_gpio_park_low();
         if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
         return err;
     }
     err = rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
     s_last_tx_done_us = esp_timer_get_time();
 
-    /* Mirror Flipper's "fully disconnect when idle" doctrine: the RMT
-     * GPIO binding is fixed for the channel's lifetime on IDF v6.1, so
-     * the closest we can get is parking the carrier modulator at duty=0
-     * once the burst has drained. With no symbols pending and no
-     * carrier configured, the GPIO sits at the channel's idle level
-     * (LOW) and the LED stays dark on phone-camera footage. */
-    apply_carrier(0);
+    /* Detach IR_TX_GPIO from RMT and pin it LOW. Mirrors Flipper's
+     * "TIM1 alt-function bound only during TX" -- between bursts the
+     * pin is plain GPIO, hard-grounded into the NMOS gate, so neither
+     * the RMT idle level nor the carrier modulator can leak onto the
+     * LEDs. The carrier itself can stay configured; with no signal
+     * routing on the pin, it has nowhere to go. */
+    tx_gpio_park_low();
 
     if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
     return err;
