@@ -323,6 +323,42 @@ static lv_obj_t *make_row_btn(lv_obj_t *parent, const char *text,
     return btn;
 }
 
+typedef struct {
+    BtnCtx     *bctx;
+    uint32_t    period_ms;
+    lv_timer_t *timer;
+} HoldCtx;
+
+static void hold_timer_cb(lv_timer_t *t)
+{
+    HoldCtx *h = lv_timer_get_user_data(t);
+    if(!h || !h->bctx || !h->bctx->cb) return;
+    h->bctx->cb(h->bctx->ctx);
+}
+
+static void hold_press_cb(lv_event_t *e)
+{
+    HoldCtx *h = lv_event_get_user_data(e);
+    if(!h || h->timer) return;
+    h->timer = lv_timer_create(hold_timer_cb, h->period_ms, h);
+}
+
+static void hold_release_cb(lv_event_t *e)
+{
+    HoldCtx *h = lv_event_get_user_data(e);
+    if(!h || !h->timer) return;
+    lv_timer_delete(h->timer);
+    h->timer = NULL;
+}
+
+static void hold_btn_destroyed(lv_event_t *e)
+{
+    HoldCtx *h = lv_event_get_user_data(e);
+    if(!h) return;
+    if(h->timer) { lv_timer_delete(h->timer); h->timer = NULL; }
+    free(h);
+}
+
 void view_info_add_button_row(ViewInfo *info,
                               const char *text1, lv_color_t color1,
                               ViewInfoButtonCb cb1, void *ctx1,
@@ -342,5 +378,47 @@ void view_info_add_button_row(ViewInfo *info,
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     make_row_btn(row, text1, color1, COLOR_PRIMARY, info, cb1, ctx1);
+    make_row_btn(row, text2, color2, COLOR_BG, info, cb2, ctx2);
+}
+
+void view_info_add_button_row_holdable(ViewInfo *info,
+                                       const char *text1, lv_color_t color1,
+                                       ViewInfoButtonCb cb1, void *ctx1,
+                                       uint32_t repeat_ms,
+                                       const char *text2, lv_color_t color2,
+                                       ViewInfoButtonCb cb2, void *ctx2)
+{
+    lv_obj_t *row = lv_obj_create(info->scroll);
+    lv_obj_set_size(row, LV_PCT(100), 56);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_column(row, 12, 0);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    if(info->btn_count >= VIEW_INFO_MAX_BUTTONS) return;
+    BtnCtx *bctx = &info->buttons[info->btn_count];
+    lv_obj_t *hold_btn = make_row_btn(row, text1, color1, COLOR_PRIMARY,
+                                      info, cb1, ctx1);
+    if(hold_btn) {
+        HoldCtx *h = calloc(1, sizeof(HoldCtx));
+        if(h) {
+            h->bctx      = bctx;
+            h->period_ms = repeat_ms ? repeat_ms : 2000;
+            lv_obj_add_event_cb(hold_btn, hold_press_cb,
+                                LV_EVENT_PRESSED,    h);
+            lv_obj_add_event_cb(hold_btn, hold_release_cb,
+                                LV_EVENT_RELEASED,   h);
+            lv_obj_add_event_cb(hold_btn, hold_release_cb,
+                                LV_EVENT_PRESS_LOST, h);
+            lv_obj_add_event_cb(hold_btn, hold_btn_destroyed,
+                                LV_EVENT_DELETE,     h);
+        }
+    }
+
     make_row_btn(row, text2, color2, COLOR_BG, info, cb2, ctx2);
 }

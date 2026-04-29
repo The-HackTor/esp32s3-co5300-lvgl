@@ -229,9 +229,11 @@ void ir_scene_learn_success_on_enter(void *ctx)
                              btn_load_universal, app);
     }
     view_info_add_button(app->info, LV_SYMBOL_SAVE " Save", COLOR_GREEN, btn_save, app);
-    view_info_add_button_row(app->info,
-                             LV_SYMBOL_PLAY " Send", COLOR_RED, btn_send, app,
-                             LV_SYMBOL_TRASH " Discard", COLOR_DIM, btn_discard, app);
+    view_info_add_button_row_holdable(app->info,
+                                      LV_SYMBOL_PLAY " Send", COLOR_RED,
+                                      btn_send, app, 2000,
+                                      LV_SYMBOL_TRASH " Discard", COLOR_DIM,
+                                      btn_discard, app);
 
     view_dispatcher_switch_to_view_animated(app->view_dispatcher, IrViewInfo,
                                             (uint32_t)TransitionSlideLeft, 180);

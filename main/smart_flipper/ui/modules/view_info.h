@@ -36,4 +36,14 @@ void view_info_add_button_row(ViewInfo *info,
                               const char *text2, lv_color_t color2,
                               ViewInfoButtonCb cb2, void *ctx2);
 
+/* Like view_info_add_button_row, but the FIRST button also fires `cb1`
+ * every `repeat_ms` while held past `repeat_ms` (LVGL long-press-repeat).
+ * A quick tap still fires once via the regular click path. */
+void view_info_add_button_row_holdable(ViewInfo *info,
+                                       const char *text1, lv_color_t color1,
+                                       ViewInfoButtonCb cb1, void *ctx1,
+                                       uint32_t repeat_ms,
+                                       const char *text2, lv_color_t color2,
+                                       ViewInfoButtonCb cb2, void *ctx2);
+
 #endif
