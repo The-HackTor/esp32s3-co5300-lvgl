@@ -436,6 +436,15 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
     }
     err = rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(500));
     s_last_tx_done_us = esp_timer_get_time();
+
+    /* Mirror Flipper's "fully disconnect when idle" doctrine: the RMT
+     * GPIO binding is fixed for the channel's lifetime on IDF v6.1, so
+     * the closest we can get is parking the carrier modulator at duty=0
+     * once the burst has drained. With no symbols pending and no
+     * carrier configured, the GPIO sits at the channel's idle level
+     * (LOW) and the LED stays dark on phone-camera footage. */
+    apply_carrier(0);
+
     if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
     return err;
 }
