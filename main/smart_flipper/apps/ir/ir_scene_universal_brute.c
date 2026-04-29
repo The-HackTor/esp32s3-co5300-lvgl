@@ -8,6 +8,7 @@
 #include "lib/infrared/brute/ir_brute.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
+#include "hw/hw_sleep.h"
 #include "esp_log.h"
 
 #include "freertos/FreeRTOS.h"
@@ -366,6 +367,10 @@ void ir_scene_universal_brute_on_enter(void *ctx)
      * eliminates self-echo decode pollution + heap churn from rx_drain. */
     ir_app_rx_pause();
 
+    /* Light-sleep would clock-gate RMT and silently halt the brute
+     * burst. Inhibit until on_exit. */
+    hw_sleep_inhibit(true);
+
     s_st.tick = lv_timer_create(brute_tick_cb, BRUTE_TICK_MS, app);
 
     ir_brute_log_next_send();
@@ -392,6 +397,8 @@ bool ir_scene_universal_brute_on_event(void *ctx, SceneEvent event)
 void ir_scene_universal_brute_on_exit(void *ctx)
 {
     IrApp *app = ctx;
+
+    hw_sleep_inhibit(false);
 
     /* Stop dispatching first so the tick callback can't submit anything new. */
     if(s_st.tick) { lv_timer_delete(s_st.tick); s_st.tick = NULL; }

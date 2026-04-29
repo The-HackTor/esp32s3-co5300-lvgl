@@ -4,6 +4,7 @@
 #include "ui/transition.h"
 #include "hw/hw_ir.h"
 #include "hw/hw_rgb.h"
+#include "hw/hw_sleep.h"
 #include "lib/infrared/ir_codecs.h"
 
 #include "freertos/FreeRTOS.h"
@@ -219,6 +220,10 @@ void ir_scene_macro_run_on_enter(void *ctx)
 {
     IrApp *app = ctx;
 
+    /* Macros chain multiple TX bursts back-to-back. Light-sleep mid-
+     * run would silently drop the rest of the sequence. */
+    hw_sleep_inhibit(true);
+
     MacroRunner *r = calloc(1, sizeof(MacroRunner));
     r->total       = app->current_macro.step_count;
     r->cur         = 0;
@@ -252,6 +257,7 @@ bool ir_scene_macro_run_on_event(void *ctx, SceneEvent event)
 void ir_scene_macro_run_on_exit(void *ctx)
 {
     IrApp *app = ctx;
+    hw_sleep_inhibit(false);
     MacroRunner *r = app->macro_runner;
     if(!r) return;
 

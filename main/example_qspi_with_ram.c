@@ -22,6 +22,7 @@
 #include "smart_flipper/hw/hw_bat.h"
 #include "smart_flipper/hw/hw_rtc.h"
 #include "smart_flipper/hw/hw_imu.h"
+#include "smart_flipper/hw/hw_sleep.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -492,4 +493,9 @@ void app_main(void)
         lv_timer_create(idle_dim_tick, IDLE_TICK_MS, NULL);
         example_lvgl_unlock();
     }
+
+    /* Sleep policy engine -- runs after the panel + LVGL are alive so
+     * it has a display handle to query for inactivity and the tick
+     * timer to pause across light-sleep cycles. */
+    hw_sleep_init(lvgl_disp, lvgl_tick_timer);
 }

@@ -3,6 +3,7 @@
 #include "ui/styles.h"
 #include "ui/widgets/back_button.h"
 #include "hw/hw_rgb.h"
+#include "hw/hw_sleep.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -129,6 +130,10 @@ void ir_scene_learn_on_enter(void *ctx)
 
     view_dispatcher_switch_to_view(app->view_dispatcher, IrViewCustom);
     hw_rgb_set(0, 0, 40);
+
+    /* Light-sleep would clock-gate RMT RX and silently kill the
+     * capture in flight. Inhibit until we leave the scene. */
+    hw_sleep_inhibit(true);
 }
 
 bool ir_scene_learn_on_event(void *ctx, SceneEvent event)
@@ -151,6 +156,7 @@ bool ir_scene_learn_on_event(void *ctx, SceneEvent event)
 void ir_scene_learn_on_exit(void *ctx)
 {
     IrApp *app = ctx;
+    hw_sleep_inhibit(false);
     hw_rgb_off();
 
     /* Stop RX BEFORE tearing down the view: prevents rx_drain_timer_cb from
