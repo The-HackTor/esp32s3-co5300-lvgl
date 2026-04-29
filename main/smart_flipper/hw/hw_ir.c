@@ -261,16 +261,26 @@ static esp_err_t apply_carrier(uint32_t carrier_hz)
 {
     /* No short-circuit: apply fresh on every TX. IDF v6.1's carrier registers
      * can drift if the channel was paused/resumed mid-burst, and forcing a
-     * re-apply costs only a couple of register writes inside a spinlock. */
+     * re-apply costs only a couple of register writes inside a spinlock.
+     *
+     * carrier_hz==0 disables the modulator. IDF's rmt_apply_carrier asserts
+     * high_ticks/low_ticks >= 1, so we can't pass duty=0 -- the canonical
+     * "carrier off" idiom is rmt_apply_carrier(NULL). */
+    if(carrier_hz == 0) {
+        esp_err_t err = rmt_apply_carrier(s_tx_chan, NULL);
+        if(err != ESP_OK) {
+            ESP_LOGE(TAG, "rmt_apply_carrier(off): %s", esp_err_to_name(err));
+            return err;
+        }
+        s_carrier_hz_active = 0;
+        return ESP_OK;
+    }
+
     rmt_carrier_config_t cfg = {
         .frequency_hz     = carrier_hz,
         .duty_cycle       = IR_CARRIER_DUTY,
         .flags.polarity_active_low = false,
     };
-    if(carrier_hz == 0) {
-        cfg.frequency_hz = 38000;
-        cfg.duty_cycle = 0.0f;
-    }
     esp_err_t err = rmt_apply_carrier(s_tx_chan, &cfg);
     if(err != ESP_OK) {
         ESP_LOGE(TAG, "rmt_apply_carrier(%u): %s", (unsigned)carrier_hz, esp_err_to_name(err));
