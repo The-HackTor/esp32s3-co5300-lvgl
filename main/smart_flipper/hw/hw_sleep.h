@@ -45,4 +45,24 @@ void hw_sleep_inhibit(bool inhibit);
  * sleep-aware IR worker (kept paused while we're asleep). */
 bool hw_sleep_is_napping(void);
 
+/* Threshold to escalate to deep-sleep after the device has been in the
+ * light-sleep loop continuously for this many milliseconds.
+ * Default 30 minutes. Pass 0 to disable deep-sleep entirely. */
+void hw_sleep_set_deep_threshold(uint32_t threshold_ms);
+
+/* Persist a small string into RTC slow memory; survives deep sleep but
+ * not power-off. Use this to capture which remote was loaded so the
+ * post-wake boot path can re-open it without making the user navigate
+ * back. NULL or empty payload clears the slot. Max ~96 bytes. */
+void hw_sleep_set_resume_payload(const char *path);
+
+/* Returns the payload last set before deep-sleep, only when the
+ * current boot is a deep-sleep wake AND the magic is intact. NULL on
+ * cold boot or when no payload was set. */
+const char *hw_sleep_get_resume_payload(void);
+
+/* True if the current boot was caused by a deep-sleep wake. Read once
+ * at app start to drive resume logic. */
+bool hw_sleep_woke_from_deep(void);
+
 #endif

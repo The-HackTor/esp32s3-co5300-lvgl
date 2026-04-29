@@ -9,6 +9,7 @@
 #include "store/ir_settings.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/universal_db/ir_universal_index.h"
+#include "hw/hw_sleep.h"
 
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -265,7 +266,23 @@ static void on_enter(void)
     ir_app_rx_pause_seed_initial();
 
     scene_manager_init(&app.scene_mgr, &ir_scene_handlers, &app);
-    scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
+
+    /* Deep-sleep resume: if the device woke from a saved-remote
+     * session, re-open that remote and skip Start -> RemoteList. */
+    const char *resume_path = hw_sleep_get_resume_payload();
+    bool resumed = false;
+    if(resume_path && resume_path[0]) {
+        if(ir_remote_load(&app.current_remote, resume_path) == ESP_OK) {
+            app.is_learning_new_remote = false;
+            scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Remote);
+            ESP_LOGI(TAG, "resumed remote from RTC slot: %s", resume_path);
+            resumed = true;
+        }
+    }
+    if(!resumed) {
+        scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
+    }
+
     lv_screen_load(app.screen);
 }
 
