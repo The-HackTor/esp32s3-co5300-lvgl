@@ -371,6 +371,27 @@ void hw_ir_init(void)
     s_tx_mtx = xSemaphoreCreateMutex();
     assert(s_tx_mtx);
 
+    /* On ESP32-S3 the RMT TX output level pre-first-transmit isn't
+     * guaranteed to be LOW -- with the NMOS gate this latches the IR
+     * LEDs ON at boot (visible as steady purple on a phone camera).
+     * Force the line LOW by issuing one minimal dummy symbol with
+     * eot_level=0; that latches the end-of-transmission level into
+     * the channel's idle output and every subsequent burst inherits
+     * the same eot_level. */
+    {
+        rmt_symbol_word_t silence = {
+            .level0 = 0, .duration0 = 1,
+            .level1 = 0, .duration1 = 1,
+        };
+        const rmt_transmit_config_t cfg = {
+            .loop_count = 0,
+            .flags.eot_level = 0,
+        };
+        ESP_ERROR_CHECK(rmt_transmit(s_tx_chan, s_copy_encoder,
+                                     &silence, sizeof(silence), &cfg));
+        ESP_ERROR_CHECK(rmt_tx_wait_all_done(s_tx_chan, pdMS_TO_TICKS(50)));
+    }
+
     s_inited = true;
     ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, carrier parked off until first send",
              IR_TX_GPIO, (unsigned)IR_RMT_RESOLUTION);
