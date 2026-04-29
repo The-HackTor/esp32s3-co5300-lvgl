@@ -23,6 +23,8 @@
 #include "smart_flipper/hw/hw_rtc.h"
 #include "smart_flipper/hw/hw_imu.h"
 #include "smart_flipper/hw/hw_sleep.h"
+#include "smart_flipper/store/sleep_settings.h"
+#include "smart_flipper/ui/ui_subjects.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -45,17 +47,17 @@ static esp_lcd_panel_io_handle_t s_panel_io = NULL;
  *
  * Three-tier idle state machine:
  *   FULL  -- screen active, brightness IDLE_FULL_LEVEL
- *   DIM   -- 30 s of touch inactivity, brightness IDLE_DIM_LEVEL
- *   BLANK -- 90 s of touch inactivity, brightness 0, panel SLPIN
+ *   DIM   -- after dim_threshold_s seconds of touch inactivity
+ *   BLANK -- after blank_threshold_s seconds; brightness 0, panel SLPIN
  *
  * BLANK saves the dominant power consumer (~80-150 mA AMOLED) by putting
  * the SH8601 into its sleep mode (cmd 0x10). On any touch, we send
  * SLPOUT (0x11), wait 120 ms per the panel datasheet, restore display-
  * on (0x29), and let the brightness ramp bring the screen back. The
  * LVGL flush callback is gated on s_panel_state so we don't burn SPI
- * traffic writing pixels to a sleeping panel. */
-#define IDLE_DIM_THRESHOLD_MS    30000
-#define IDLE_BLANK_THRESHOLD_MS  90000
+ * traffic writing pixels to a sleeping panel. Thresholds are read
+ * dynamically from sleep_settings() so the user can tune them from the
+ * Settings UI without rebuilding. */
 #define IDLE_DIM_LEVEL           0x1A
 #define IDLE_FULL_LEVEL          0xFF
 #define IDLE_RAMP_STEP           8
@@ -99,6 +101,21 @@ static void panel_sleep_out(void)
     if (lvgl_disp) lv_obj_invalidate(lv_display_get_screen_active(lvgl_disp));
 }
 
+static void battery_publish_tick(lv_timer_t *t)
+{
+    (void)t;
+    lv_subject_set_int(&subject_battery, hw_bat_read_soc_pct());
+}
+
+static void sleep_reapply_tick(lv_timer_t *t)
+{
+    (void)t;
+    /* Cheap path: the apply checks SoC + charging and ratchets the
+     * thresholds. Calling it on a 1-minute cadence is plenty -- SoC
+     * trends faster than the user notices a UI snappiness change. */
+    sleep_settings_apply();
+}
+
 static void idle_dim_tick(lv_timer_t *t)
 {
     (void)t;
@@ -106,7 +123,11 @@ static void idle_dim_tick(lv_timer_t *t)
     if (!lvgl_disp) return;
     uint32_t inactive = lv_display_get_inactive_time(lvgl_disp);
 
-    if (inactive < IDLE_DIM_THRESHOLD_MS && s_panel_state == PANEL_BLANK) {
+    const SleepSettings *ss = sleep_settings();
+    const uint32_t dim_ms   = ss->dim_threshold_s   * 1000u;
+    const uint32_t blank_ms = ss->blank_threshold_s * 1000u;
+
+    if (inactive < dim_ms && s_panel_state == PANEL_BLANK) {
         /* Wake from blank: panel SLPOUT, then ramp brightness up from 0. */
         panel_sleep_out();
         s_panel_state = PANEL_FULL;
@@ -117,9 +138,9 @@ static void idle_dim_tick(lv_timer_t *t)
 
     uint8_t target_level;
     panel_state_t target_state;
-    if (inactive >= IDLE_BLANK_THRESHOLD_MS)        { target_state = PANEL_BLANK; target_level = 0; }
-    else if (inactive >= IDLE_DIM_THRESHOLD_MS)     { target_state = PANEL_DIM;   target_level = IDLE_DIM_LEVEL; }
-    else                                            { target_state = PANEL_FULL;  target_level = IDLE_FULL_LEVEL; }
+    if (inactive >= blank_ms)         { target_state = PANEL_BLANK; target_level = 0; }
+    else if (inactive >= dim_ms)      { target_state = PANEL_DIM;   target_level = IDLE_DIM_LEVEL; }
+    else                              { target_state = PANEL_FULL;  target_level = IDLE_FULL_LEVEL; }
 
     if (current != target_level) {
         if (target_level > current) {
@@ -498,4 +519,21 @@ void app_main(void)
      * it has a display handle to query for inactivity and the tick
      * timer to pause across light-sleep cycles. */
     hw_sleep_init(lvgl_disp, lvgl_tick_timer);
+
+    /* Apply persisted sleep policy: load thresholds + low-battery
+     * preference, push them into hw_sleep. The applier re-runs on
+     * every battery sample (see sleep_apply_tick below) so a SoC drop
+     * or charger plug-in dynamically retunes thresholds. */
+    sleep_settings_load();
+    sleep_settings_apply();
+
+    /* Wire subject_battery to the hw_bat driver so the watchface +
+     * settings glyphs show real SoC. Re-apply sleep settings each
+     * minute so charging detection and low-battery override take
+     * effect without user input. */
+    if (example_lvgl_lock(-1)) {
+        lv_timer_create(battery_publish_tick, 5000, NULL);
+        lv_timer_create(sleep_reapply_tick,  60000, NULL);
+        example_lvgl_unlock();
+    }
 }
