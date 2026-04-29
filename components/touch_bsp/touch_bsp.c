@@ -42,6 +42,11 @@ void Touch_Init(void)
   I2C_writr_buff(0x00, &data, 1); //Switch to normal mode
 }
 
+i2c_master_bus_handle_t touch_bsp_get_bus_handle(void)
+{
+  return s_bus_handle;
+}
+
 uint8_t getTouch(uint16_t *x, uint16_t *y)
 {
   /* FT3168 reg 0x02 = touch point count; low nibble is the real count, upper

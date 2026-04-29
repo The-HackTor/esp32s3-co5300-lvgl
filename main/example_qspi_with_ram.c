@@ -20,6 +20,7 @@
 #include "smart_flipper/hw/hw_rgb.h"
 #include "smart_flipper/hw/hw_ir.h"
 #include "smart_flipper/hw/hw_bat.h"
+#include "smart_flipper/hw/hw_rtc.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -403,6 +404,11 @@ void app_main(void)
     idle_dim_set_level(IDLE_FULL_LEVEL);
 
     Touch_Init();
+
+    /* PCF85063 RTC shares I2C0 with the touch controller, so it can
+     * register as soon as Touch_Init has brought the bus up. RTC seeds
+     * the system wall clock when valid. */
+    hw_rtc_init();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
     gpio_set_level(EXAMPLE_PIN_NUM_BK_LIGHT, EXAMPLE_LCD_BK_LIGHT_ON_LEVEL);

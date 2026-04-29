@@ -15,6 +15,21 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
+
+/* Returns microseconds since epoch when the system clock has been
+ * seeded from the PCF85063 RTC; falls back to esp_timer_get_time
+ * (microseconds since boot) when only uptime is available. The history
+ * scene renders the value with a "T+" prefix when the RTC was invalid,
+ * so a 1970-rooted vs uptime-rooted timestamp is unambiguous. */
+static int64_t ir_now_us(void)
+{
+    struct timeval tv;
+    if(gettimeofday(&tv, NULL) == 0 && tv.tv_sec > (time_t)1700000000) {
+        return (int64_t)tv.tv_sec * 1000000LL + (int64_t)tv.tv_usec;
+    }
+    return esp_timer_get_time();
+}
 
 #define TAG "ir_app"
 
@@ -122,7 +137,7 @@ static void rx_drain_timer_cb(lv_timer_t *t)
         app.last_decoded_valid = true;
 
         IrHistoryEntry hist = {
-            .timestamp_us = esp_timer_get_time(),
+            .timestamp_us = ir_now_us(),
             .address      = dec.address,
             .command      = dec.command,
         };
