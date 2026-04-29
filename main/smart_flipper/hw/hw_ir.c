@@ -349,14 +349,20 @@ void hw_ir_init(void)
     const rmt_copy_encoder_config_t enc_cfg = {};
     ESP_ERROR_CHECK(rmt_new_copy_encoder(&enc_cfg, &s_copy_encoder));
 
-    ESP_ERROR_CHECK(apply_carrier(38000));
+    /* Park the carrier at duty=0 until the first TX. Bringing the channel
+     * up with a 33%-duty 38 kHz carrier already configured leaves the
+     * RMT modulator running on GPIO16 from boot -- visible as a steady
+     * IR glow on a phone camera. Each hw_ir_send_raw applies the real
+     * carrier just-in-time, so disabling at init has zero functional
+     * cost. */
+    ESP_ERROR_CHECK(apply_carrier(0));
     ESP_ERROR_CHECK(rmt_enable(s_tx_chan));
 
     s_tx_mtx = xSemaphoreCreateMutex();
     assert(s_tx_mtx);
 
     s_inited = true;
-    ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, default carrier=38 kHz",
+    ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, carrier parked off until first send",
              IR_TX_GPIO, (unsigned)IR_RMT_RESOLUTION);
 }
 
