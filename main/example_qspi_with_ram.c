@@ -21,6 +21,7 @@
 #include "smart_flipper/hw/hw_ir.h"
 #include "smart_flipper/hw/hw_bat.h"
 #include "smart_flipper/hw/hw_rtc.h"
+#include "smart_flipper/hw/hw_imu.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -409,6 +410,10 @@ void app_main(void)
      * register as soon as Touch_Init has brought the bus up. RTC seeds
      * the system wall clock when valid. */
     hw_rtc_init();
+
+    /* QMI8658 IMU also lives on I2C0; supplies an accel-magnitude
+     * shake-to-wake signal sampled by the sleep policy. */
+    hw_imu_init();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
     gpio_set_level(EXAMPLE_PIN_NUM_BK_LIGHT, EXAMPLE_LCD_BK_LIGHT_ON_LEVEL);
