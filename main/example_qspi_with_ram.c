@@ -19,6 +19,7 @@
 #include "smart_flipper/smart_flipper.h"
 #include "smart_flipper/hw/hw_rgb.h"
 #include "smart_flipper/hw/hw_ir.h"
+#include "smart_flipper/hw/hw_bat.h"
 
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -337,6 +338,10 @@ void app_main(void)
     hw_rgb_pulse(  0, 255,   0, 300); vTaskDelay(pdMS_TO_TICKS(350));
     hw_rgb_pulse(  0,   0, 255, 300); vTaskDelay(pdMS_TO_TICKS(350));
     hw_rgb_off();
+
+    /* Battery ADC on IO4 (BAT_ADC, divider 1/3). Spawns a 250 ms sampling
+     * task; status_bar widget reads the latest filtered mV / SoC %. */
+    hw_bat_init();
 
     /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
     example_mount_sdcard();
