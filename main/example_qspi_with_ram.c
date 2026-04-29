@@ -254,6 +254,25 @@ static void example_lvgl_port_task(void *arg)
 
 void app_main(void)
 {
+    /* Anchor IR_TX (GPIO16) LOW the moment we have control. The NMOS
+     * gate has no external pulldown, so any time GPIO16 floats (chip
+     * reset through bootloader, ~hundreds of ms before hw_ir_init
+     * runs) the gate leaks high enough to partially turn on the IR
+     * LEDs -- visible as steady purple on a phone camera. Driving
+     * GPIO16 LOW here grounds the gate immediately; hw_ir_init later
+     * preserves the LOW idle via its GPIO-matrix detach. */
+    {
+        gpio_config_t ir_tx_anchor = {
+            .mode = GPIO_MODE_OUTPUT,
+            .pin_bit_mask = 1ULL << 16,
+            .pull_down_en = GPIO_PULLDOWN_ENABLE,
+            .pull_up_en   = GPIO_PULLUP_DISABLE,
+            .intr_type    = GPIO_INTR_DISABLE,
+        };
+        ESP_ERROR_CHECK(gpio_config(&ir_tx_anchor));
+        gpio_set_level(GPIO_NUM_16, 0);
+    }
+
     READ_LCD_ID = read_lcd_id();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
