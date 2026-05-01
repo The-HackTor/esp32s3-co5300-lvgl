@@ -42,22 +42,22 @@ static SemaphoreHandle_t lvgl_mux = NULL;
 static lv_display_t *lvgl_disp = NULL;
 static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 
-/* 0x51 = SH8601 write_display_brightness (1 byte, 0x00..0xFF). Ramped per
- * IDLE_TICK_MS to mask AMOLED step changes.
+/* 0x51 = SH8601 write_display_brightness (1 byte, 0x00..0xFF). Ramped
+ * per IDLE_TICK_MS to mask AMOLED step changes.
  *
  * Three-tier idle state machine:
  *   FULL  -- screen active, brightness IDLE_FULL_LEVEL
  *   DIM   -- after dim_threshold_s seconds of touch inactivity
- *   BLANK -- after blank_threshold_s seconds; brightness 0, panel SLPIN
+ *   BLANK -- after blank_threshold_s seconds; brightness 0
  *
- * BLANK saves the dominant power consumer (~80-150 mA AMOLED) by putting
- * the SH8601 into its sleep mode (cmd 0x10). On any touch, we send
- * SLPOUT (0x11), wait 120 ms per the panel datasheet, restore display-
- * on (0x29), and let the brightness ramp bring the screen back. The
- * LVGL flush callback is gated on s_panel_state so we don't burn SPI
- * traffic writing pixels to a sleeping panel. Thresholds are read
- * dynamically from sleep_settings() so the user can tune them from the
- * Settings UI without rebuilding. */
+ * BLANK is implemented as just brightness=0 (black AMOLED pixels draw
+ * near-zero current). Earlier we also issued SH8601 SLPIN (cmd 0x10)
+ * which hung LVGL whenever the command race-interleaved with an in-
+ * flight QSPI flush -- the panel went into sleep mid-DMA and the
+ * flush_ready ack never fired, so the LVGL task spun forever waiting
+ * on the buffer. The brightness-only path skips the panel state
+ * machine entirely; we lose maybe 1-2 mA of additional AMOLED savings
+ * but never deadlock. */
 #define IDLE_DIM_LEVEL           0x1A
 #define IDLE_FULL_LEVEL          0xFF
 #define IDLE_RAMP_STEP           8
@@ -78,27 +78,6 @@ static void idle_dim_set_level(uint8_t level)
     if (!s_panel_io) return;
     uint8_t p = level;
     esp_lcd_panel_io_tx_param(s_panel_io, 0x51, &p, 1);
-}
-
-static void panel_sleep_in(void)
-{
-    if (!s_panel_io) return;
-    uint8_t zero = 0;
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x51, &zero, 1);   /* brightness 0 */
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x28, NULL, 0);    /* display off  */
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x10, NULL, 0);    /* sleep in     */
-}
-
-static void panel_sleep_out(void)
-{
-    if (!s_panel_io) return;
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x11, NULL, 0);    /* sleep out    */
-    vTaskDelay(pdMS_TO_TICKS(120));                          /* SH8601 spec  */
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x29, NULL, 0);    /* display on   */
-    /* Force a full screen redraw -- pixels rendered while blanked were
-     * dropped by the gated flush callback. Without this the panel
-     * shows whatever it had at sleep-in until the next dirty area. */
-    if (lvgl_disp) lv_obj_invalidate(lv_display_get_screen_active(lvgl_disp));
 }
 
 static void battery_publish_tick(lv_timer_t *t)
@@ -127,15 +106,6 @@ static void idle_dim_tick(lv_timer_t *t)
     const uint32_t dim_ms   = ss->dim_threshold_s   * 1000u;
     const uint32_t blank_ms = ss->blank_threshold_s * 1000u;
 
-    if (inactive < dim_ms && s_panel_state == PANEL_BLANK) {
-        /* Wake from blank: panel SLPOUT, then ramp brightness up from 0. */
-        panel_sleep_out();
-        s_panel_state = PANEL_FULL;
-        current = 0;
-        idle_dim_set_level(current);
-        return;
-    }
-
     uint8_t target_level;
     panel_state_t target_state;
     if (inactive >= blank_ms)         { target_state = PANEL_BLANK; target_level = 0; }
@@ -154,13 +124,13 @@ static void idle_dim_tick(lv_timer_t *t)
         return;
     }
 
-    /* Brightness has reached the target; only now commit the state
-     * change. The blank transition piggy-backs the ramp -- once
-     * current==0, send SLPIN and stop touching the panel. */
-    if (target_state == PANEL_BLANK && s_panel_state != PANEL_BLANK) {
-        panel_sleep_in();
-        s_panel_state = PANEL_BLANK;
-    } else if (target_state != PANEL_BLANK) {
+    /* Brightness has reached the target; commit the state change so
+     * downstream code (sleep policy, status bar) can read it. No SPI
+     * traffic beyond the brightness ramp itself. */
+    if (s_panel_state != target_state) {
+        ESP_LOGI(TAG, "panel state %d -> %d (inactive=%lums, brightness=0x%02X)",
+                 (int)s_panel_state, (int)target_state,
+                 (unsigned long)inactive, current);
         s_panel_state = target_state;
     }
 }
@@ -230,13 +200,11 @@ static bool example_notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
 
 static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    /* Skip QSPI traffic to a sleeping panel. The ack must still fire so
-     * LVGL releases the buffer. On wake, panel_sleep_out invalidates the
-     * full screen so this slot's pixels reappear. */
-    if (s_panel_state == PANEL_BLANK) {
-        lv_display_flush_ready(disp);
-        return;
-    }
+    /* Panel stays addressable in every tier (BLANK = brightness=0, not
+     * SLPIN), so we always flush. Earlier the SLPIN path had us gate
+     * this callback on s_panel_state == PANEL_BLANK, but that race-
+     * deadlocked LVGL when SLPIN landed mid-DMA. Keeping the panel
+     * awake makes the flush path identical regardless of dim/blank. */
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
     const int offsetx1 = (READ_LCD_ID == SH8601_ID) ? area->x1 : area->x1 + 0x06;
     const int offsetx2 = (READ_LCD_ID == SH8601_ID) ? area->x2 : area->x2 + 0x06;
