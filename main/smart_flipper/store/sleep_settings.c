@@ -9,11 +9,15 @@
 
 static const char *TAG = "sleep_settings";
 
+/* Bench-aggressive defaults: full ladder fits in ~2 min so a tester can
+ * see dim -> blank -> light-sleep -> deep-sleep without waiting half an
+ * hour. Bump these to 30 / 90 / 300 / 1800 for normal-use battery life
+ * once verified, or persist user-tuned values in /sdcard/sleep.ini. */
 static SleepSettings s = {
-    .dim_threshold_s          = 30,
-    .blank_threshold_s        = 90,
-    .light_sleep_threshold_s  = 300,
-    .deep_sleep_threshold_s   = 1800,
+    .dim_threshold_s          = 5,
+    .blank_threshold_s        = 15,
+    .light_sleep_threshold_s  = 30,
+    .deep_sleep_threshold_s   = 60,
     .listen_for_ir_when_asleep = true,
     .low_bat_aggressive       = true,
 };
@@ -64,16 +68,22 @@ void sleep_settings_set_lowbat_agg(bool v)     { s.low_bat_aggressive = v; sleep
 
 void sleep_settings_apply(void)
 {
-    /* Low-battery override: when SoC drops below 15 %, ratchet the
-     * thresholds down to extend run time at the cost of UI snappiness.
-     * Charging detection short-circuits this -- if the user is plugged
-     * in we honor the configured values. */
+    /* Low-battery override: when SoC drops below 15 %, halve the
+     * thresholds (with a floor so we don't fall into pathological
+     * sub-second windows) to extend run-time at the cost of UI
+     * snappiness. Halving means the override stays meaningful at any
+     * configured baseline, including the bench-aggressive defaults
+     * where the previous "clamp to 60 / 300 s" was a no-op. Charging
+     * detection short-circuits this -- if the user is plugged in we
+     * honor the configured values. */
     uint32_t light_ms = s.light_sleep_threshold_s * 1000u;
     uint32_t deep_ms  = s.deep_sleep_threshold_s  * 1000u;
 
     if(s.low_bat_aggressive && !hw_bat_is_charging() && hw_bat_read_soc_pct() < 15) {
-        if(light_ms > 60u   * 1000u) light_ms = 60u   * 1000u;     /* 1 min   */
-        if(deep_ms  > 300u  * 1000u) deep_ms  = 300u  * 1000u;     /* 5 min   */
+        light_ms /= 2;
+        deep_ms  /= 2;
+        if(light_ms < 10u * 1000u) light_ms = 10u * 1000u;     /* 10 s floor */
+        if(deep_ms  < 30u * 1000u) deep_ms  = 30u * 1000u;     /* 30 s floor */
     }
 
     hw_sleep_set_threshold(light_ms);
