@@ -14,6 +14,7 @@
 static const char *TAG = "hw_sleep";
 
 #define BOOT_BTN_GPIO  GPIO_NUM_0
+#define IMU_INT_GPIO   GPIO_NUM_8
 #define IDLE_TICK_MS   1000
 
 static lv_display_t *s_disp;
@@ -53,22 +54,33 @@ void hw_sleep_init(lv_display_t *disp)
 {
     s_disp = disp;
 
-    const gpio_config_t cfg = {
-        .pin_bit_mask = (1ULL << BOOT_BTN_GPIO),
+    const gpio_config_t boot_cfg = {
+        .pin_bit_mask = 1ULL << BOOT_BTN_GPIO,
         .mode         = GPIO_MODE_INPUT,
         .pull_up_en   = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_LOW_LEVEL,
     };
-    gpio_config(&cfg);
+    gpio_config(&boot_cfg);
+
+    const gpio_config_t imu_cfg = {
+        .pin_bit_mask = 1ULL << IMU_INT_GPIO,
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_HIGH_LEVEL,
+    };
+    gpio_config(&imu_cfg);
 
     esp_err_t isr_err = gpio_install_isr_service(0);
     if(isr_err != ESP_OK && isr_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "gpio_install_isr_service: %s", esp_err_to_name(isr_err));
     }
     gpio_isr_handler_add(BOOT_BTN_GPIO, wake_isr, NULL);
+    gpio_isr_handler_add(IMU_INT_GPIO,  wake_isr, NULL);
 
     gpio_wakeup_enable(BOOT_BTN_GPIO, GPIO_INTR_LOW_LEVEL);
+    gpio_wakeup_enable(IMU_INT_GPIO,  GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
 
     s_idle_timer = lv_timer_create(idle_tick, IDLE_TICK_MS, NULL);

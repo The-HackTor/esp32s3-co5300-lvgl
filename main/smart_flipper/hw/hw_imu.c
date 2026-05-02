@@ -202,7 +202,7 @@ esp_err_t hw_imu_arm_motion_wake(void)
     err = ctrl9_cmd(CTRL9_MOTION);
     if(err != ESP_OK) return err;
 
-    err = reg_write(REG_CTRL8, 0x80);
+    err = reg_write(REG_CTRL8, 0xC2);
     if(err != ESP_OK) return err;
     err = reg_write(REG_CTRL7, CTRL7_ACCGYR_EN);
     if(err != ESP_OK) return err;
