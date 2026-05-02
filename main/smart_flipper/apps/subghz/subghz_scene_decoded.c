@@ -2,11 +2,6 @@
 #include "subghz_scenes.h"
 #include "ui/styles.h"
 
-/*
- * Capture Result / Decoded -- contextual menu after successful capture.
- * Shows: Save, Replay, Waveform (like Flipper's receiver info).
- */
-
 enum { IDX_SAVE, IDX_REPLAY, IDX_SEND, IDX_WAVEFORM };
 
 static void submenu_cb(void *context, uint32_t index)

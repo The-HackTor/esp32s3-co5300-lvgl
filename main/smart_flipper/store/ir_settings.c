@@ -1,5 +1,7 @@
 #include "ir_settings.h"
 
+#include "store_util.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -60,27 +62,30 @@ esp_err_t ir_settings_load(void)
         } else if(strcmp(key, "auto_save") == 0) {
             s.auto_save_worked = (iv != 0);
         } else if(strcmp(key, "tx_invert") == 0) {
-            s.tx_invert = (iv != 0);
+            (void)iv;
         }
     }
     fclose(fp);
+    s.tx_invert = false;
     return ESP_OK;
 }
 
 esp_err_t ir_settings_save(void)
 {
-    FILE *fp = fopen(IR_SETTINGS_PATH, "w");
+    FILE *fp = store_atomic_open(IR_SETTINGS_PATH);
     if(!fp) return ESP_FAIL;
-    fprintf(fp, "[ir]\n");
-    fprintf(fp, "brute_gap_ms=%u\n",    s.brute_gap_ms);
-    fprintf(fp, "brute_ac_gap_ms=%u\n", s.brute_ac_gap_ms);
-    fprintf(fp, "tx_echo_ms=%u\n",      s.tx_echo_ms);
-    fprintf(fp, "history_max=%u\n",     s.history_max);
-    fprintf(fp, "brute_repeat=%u\n",    s.brute_repeat);
-    fprintf(fp, "auto_save=%d\n",       s.auto_save_worked ? 1 : 0);
-    fprintf(fp, "tx_invert=%d\n",       s.tx_invert ? 1 : 0);
-    fclose(fp);
-    return ESP_OK;
+    if(fprintf(fp, "[ir]\n")                                          < 0 ||
+       fprintf(fp, "brute_gap_ms=%u\n",    s.brute_gap_ms)            < 0 ||
+       fprintf(fp, "brute_ac_gap_ms=%u\n", s.brute_ac_gap_ms)         < 0 ||
+       fprintf(fp, "tx_echo_ms=%u\n",      s.tx_echo_ms)              < 0 ||
+       fprintf(fp, "history_max=%u\n",     s.history_max)             < 0 ||
+       fprintf(fp, "brute_repeat=%u\n",    s.brute_repeat)            < 0 ||
+       fprintf(fp, "auto_save=%d\n",       s.auto_save_worked ? 1 : 0) < 0 ||
+       fprintf(fp, "tx_invert=%d\n",       s.tx_invert ? 1 : 0)        < 0) {
+        store_atomic_abort(fp, IR_SETTINGS_PATH);
+        return ESP_FAIL;
+    }
+    return store_atomic_commit(fp, IR_SETTINGS_PATH);
 }
 
 void ir_settings_set_brute_gap_ms   (uint16_t v) { s.brute_gap_ms     = v; ir_settings_save(); }

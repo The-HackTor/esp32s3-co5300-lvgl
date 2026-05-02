@@ -76,15 +76,11 @@ typedef struct {
     IrDecoded       last_decoded;
     bool            last_decoded_valid;
 
-    /* Raw timing buffer kept alongside a parsed decode so live Send always
-     * works even when the encoder doesn't have the protocol yet. Cleared
-     * when the pending button is saved (parsed-only goes to .ir) or when
-     * the app exits. */
+    /* Raw timings retained alongside a parsed decode so live Send works
+     * even when the encoder lacks the protocol. */
     uint16_t       *pending_raw_timings;
     size_t          pending_raw_n;
 
-    /* Most recent capture mirrored from rx_drain_timer_cb so the Learn
-     * scene's oscilloscope can render an envelope preview. */
     uint16_t        preview_timings[256];
     size_t          preview_n;
     uint32_t        preview_seq;
@@ -107,18 +103,16 @@ typedef struct {
 void   ir_app_register(void);
 IrApp *ir_app_get(void);
 
-/* Pause/resume the IR RX subsystem (RMT channel + drain timer + queue).
- * Use in scenes that fire TX bursts to stop self-echo from polluting
- * pending_button / history and from loading the heap with decode allocs.
- * Mirrors Flipper's per-scene start/stop of the IR worker. */
+/* Refcounted pause/resume of the RX subsystem (RMT channel + drain timer
+ * + queue). TX-firing scenes use this to suppress self-echo decode and the
+ * heap churn of rx_drain. Mirrors Flipper's per-scene worker lifecycle. */
 void   ir_app_rx_pause(void);
 void   ir_app_rx_resume(void);
 
-/* lv_timer_cb_t-shaped helper for one-shot resume-then-self-delete. */
 void   ir_app_rx_resume_then_delete_timer(lv_timer_t *t);
 
-/* Pre-arms the RX pause refcount to 1 at boot so RX stays off until the
- * first ir_app_rx_resume() (currently called only from Learn::on_enter). */
+/* Pre-arm refcount to 1 at boot; first resume (Learn::on_enter) drops it
+ * to 0 and starts RX for the first time. */
 void   ir_app_rx_pause_seed_initial(void);
 
 #endif

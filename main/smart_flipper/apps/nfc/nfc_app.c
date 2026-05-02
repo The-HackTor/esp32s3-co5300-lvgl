@@ -9,7 +9,6 @@
 
 static NfcApp app;
 
-/* --- Generate handler arrays via X-macros --- */
 #define ADD_SCENE(prefix, name, id) \
     [prefix##_SCENE_##id] = prefix##_scene_##name##_on_enter,
 static const SceneOnEnterCb nfc_on_enter[] = {
@@ -45,7 +44,6 @@ static void on_init(void) {
     lv_obj_add_style(app.screen, &style_screen, 0);
     nav_install_gesture(app.screen);
 
-    /* Allocate view modules as children of app screen */
     app.submenu = view_submenu_alloc(app.screen);
     app.action  = view_action_alloc(app.screen);
     app.info    = view_info_alloc(app.screen);
@@ -53,7 +51,6 @@ static void on_init(void) {
     app.popup   = view_popup_alloc(app.screen);
     app.custom  = view_custom_alloc(app.screen);
 
-    /* Create view dispatcher and register views */
     app.view_dispatcher = view_dispatcher_alloc(app.screen);
     view_dispatcher_add_view(app.view_dispatcher, NfcViewSubmenu, view_submenu_get_module(app.submenu));
     view_dispatcher_add_view(app.view_dispatcher, NfcViewAction,  view_action_get_module(app.action));
@@ -62,12 +59,12 @@ static void on_init(void) {
     view_dispatcher_add_view(app.view_dispatcher, NfcViewPopup,   view_popup_get_module(app.popup));
     view_dispatcher_add_view(app.view_dispatcher, NfcViewCustom,  view_custom_get_module(app.custom));
 
-    /* Wire scene manager (will be re-initialized on each enter) */
     view_dispatcher_set_scene_manager(app.view_dispatcher, &app.scene_mgr);
 }
 
 static void on_enter(void) {
-    /* Reset runtime state (don't memset -- preserve view module pointers) */
+    /* Selective reset: full memset would clobber the view module pointers
+     * created once in on_init() and never reallocated. */
     app.dump_valid    = false;
     app.emulating     = false;
     app.nonce_count   = 0;
@@ -85,7 +82,6 @@ static void on_enter(void) {
 
     subghz_hal_idle();
 
-    /* Fresh scene navigation */
     scene_manager_init(&app.scene_mgr, &nfc_scene_handlers, &app);
     scene_manager_next_scene(&app.scene_mgr, nfc_SCENE_Main);
     lv_screen_load(app.screen);
@@ -95,7 +91,6 @@ static void on_leave(void) {
     scene_manager_stop(&app.scene_mgr);
     hw_nfc_stop_emulate();
 
-    /* Reset view modules but don't free them */
     view_submenu_reset(app.submenu);
     view_action_reset(app.action);
     view_info_reset(app.info);

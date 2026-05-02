@@ -95,7 +95,6 @@ static void on_init(void)
 
     status_bar_create(screen, "Music", COLOR_MAGENTA);
 
-    /* ---- progress arc around the full display ---- */
     arc_progress = lv_arc_create(screen);
     lv_obj_set_size(arc_progress, DISP_W - 36, DISP_H - 36);
     lv_obj_center(arc_progress);
@@ -111,10 +110,9 @@ static void on_init(void)
     lv_obj_set_style_arc_color(arc_progress, COLOR_MAGENTA, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc_progress, true, LV_PART_INDICATOR);
 
-    /* ---- track info ---- */
     lv_obj_t *title = lv_label_create(screen);
     lv_label_set_text(title, "Midnight City");
-    lv_obj_set_style_text_font(title, FONT_MENU, 0);      /* 24 px -- was FONT_TITLE */
+    lv_obj_set_style_text_font(title, FONT_MENU, 0);
     lv_obj_set_style_text_color(title, COLOR_PRIMARY, 0);
     lv_obj_set_style_max_width(title, 340, 0);
     lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -122,19 +120,18 @@ static void on_init(void)
 
     lv_obj_t *artist = lv_label_create(screen);
     lv_label_set_text(artist, "M83");
-    lv_obj_set_style_text_font(artist, FONT_BODY, 0);     /* 18 px */
+    lv_obj_set_style_text_font(artist, FONT_BODY, 0);
     lv_obj_set_style_text_color(artist, COLOR_SECONDARY, 0);
     lv_obj_align(artist, LV_ALIGN_CENTER, 0, -48);
 
     lv_obj_t *album = lv_label_create(screen);
     lv_label_set_text(album, "Hurry Up, We're Dreaming");
-    lv_obj_set_style_text_font(album, FONT_BODY, 0);      /* 18 px -- was FONT_SMALL */
+    lv_obj_set_style_text_font(album, FONT_BODY, 0);
     lv_obj_set_style_text_color(album, COLOR_DIM, 0);
     lv_obj_set_style_max_width(album, 320, 0);
     lv_label_set_long_mode(album, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(album, LV_ALIGN_CENTER, 0, -22);
 
-    /* ---- playback controls (oversized touch targets) ---- */
     create_ctrl(screen, LV_SYMBOL_PREV, 64, COLOR_PRIMARY, prev_cb,
                 FONT_MENU, -100, 30);
 
@@ -146,22 +143,20 @@ static void on_init(void)
     create_ctrl(screen, LV_SYMBOL_NEXT, 64, COLOR_PRIMARY, next_cb,
                 FONT_MENU, 100, 30);
 
-    /* ---- volume controls ---- */
     create_ctrl(screen, LV_SYMBOL_VOLUME_MID, 56, COLOR_GREEN, vol_dn_cb,
                 FONT_BODY, -60, 108);
     create_ctrl(screen, LV_SYMBOL_VOLUME_MAX, 56, COLOR_GREEN, vol_up_cb,
                 FONT_BODY, 60, 108);
 
-    /* ---- elapsed / total time ---- */
     lbl_elapsed = lv_label_create(screen);
     lv_label_set_text_fmt(lbl_elapsed, "%d:%02d", elapsed_sec / 60, elapsed_sec % 60);
-    lv_obj_set_style_text_font(lbl_elapsed, FONT_BODY, 0);   /* 18 px -- was FONT_MONO */
+    lv_obj_set_style_text_font(lbl_elapsed, FONT_BODY, 0);
     lv_obj_set_style_text_color(lbl_elapsed, COLOR_SECONDARY, 0);
     lv_obj_align(lbl_elapsed, LV_ALIGN_BOTTOM_MID, -44, -52);
 
     lbl_total = lv_label_create(screen);
     lv_label_set_text(lbl_total, "3:37");
-    lv_obj_set_style_text_font(lbl_total, FONT_BODY, 0);     /* 18 px -- was FONT_MONO */
+    lv_obj_set_style_text_font(lbl_total, FONT_BODY, 0);
     lv_obj_set_style_text_color(lbl_total, COLOR_DIM, 0);
     lv_obj_align(lbl_total, LV_ALIGN_BOTTOM_MID, 44, -52);
 }

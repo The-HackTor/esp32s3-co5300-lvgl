@@ -76,6 +76,24 @@ esp_err_t ir_codecs_encode_with_repeat(const IrDecoded *in,
                                        uint16_t **out_repeat_timings, size_t *out_repeat_n,
                                        uint32_t *out_freq_hz);
 
+/*
+ * Drain `cycles` complete encoder cycles into a single mark-first timing
+ * buffer. Cycle 1's leading silence is dropped (line is already idle); each
+ * subsequent cycle's silence becomes an inline space, providing the
+ * inter-frame gap the receiver's AGC requires. Mirrors Flipper's
+ * infrared_send flow: one carrier-modulated TX, no host-side gap between
+ * cycles. Use cycles = max(2, ir_codecs_min_repeat_count(protocol)).
+ */
+esp_err_t ir_codecs_encode_full(const IrDecoded *in, size_t cycles,
+                                uint16_t **out_timings, size_t *out_n,
+                                uint32_t *out_freq_hz);
+
+/*
+ * Minimum total frame count the receiver expects. SIRC = 3, NEC/RC5/etc = 1.
+ * Returns 1 for unknown / non-Flipper-tier protocols.
+ */
+size_t ir_codecs_min_repeat_count(const char *protocol);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

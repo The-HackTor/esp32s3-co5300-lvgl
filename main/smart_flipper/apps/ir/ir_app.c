@@ -9,7 +9,6 @@
 #include "store/ir_settings.h"
 #include "lib/infrared/universal_db/ir_universal_db.h"
 #include "lib/infrared/universal_db/ir_universal_index.h"
-#include "hw/hw_sleep.h"
 
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -18,11 +17,9 @@
 #include <string.h>
 #include <sys/time.h>
 
-/* Returns microseconds since epoch when the system clock has been
- * seeded from the PCF85063 RTC; falls back to esp_timer_get_time
- * (microseconds since boot) when only uptime is available. The history
- * scene renders the value with a "T+" prefix when the RTC was invalid,
- * so a 1970-rooted vs uptime-rooted timestamp is unambiguous. */
+/* Returns wall-clock us when the PCF85063 RTC has seeded the system
+ * clock, otherwise uptime us. History renders uptime values with a "T+"
+ * prefix so the two roots are visually distinct. */
 static int64_t ir_now_us(void)
 {
     struct timeval tv;
@@ -222,10 +219,7 @@ static void on_init(void)
     view_dispatcher_set_scene_manager(app.view_dispatcher, &app.scene_mgr);
 
     app.rx_queue = xQueueCreate(RX_QUEUE_DEPTH, sizeof(IrRxFrame *));
-    app.worker   = infrared_worker_alloc();
-    if(app.worker) {
-        infrared_worker_rx_set_received_signal_callback(app.worker, worker_signal_cb, NULL);
-    }
+    app.worker = NULL;
     ir_store_init();
     macro_store_init();
     ir_settings_load();
@@ -253,12 +247,9 @@ static void on_enter(void)
 
     if(app.rx_queue) xQueueReset(app.rx_queue);
 
-    /* Create the drain timer (paused) but DO NOT start hw_ir_rx. Learn scene
-     * is the only RX consumer; it calls ir_app_rx_resume on enter and
-     * ir_app_rx_pause on exit. Pre-arming the refcount to 1 here means
-     * Learn's first resume drops it to 0 and starts RX, and any other scene
-     * that wraps its TX in pause/resume sees the expected balanced semantics
-     * (depth never goes negative, RX never wakes outside Learn). */
+    /* Create the drain timer paused; do NOT start hw_ir_rx. Learn owns the
+     * resume; pre-arming depth to 1 keeps RX off everywhere else and keeps
+     * pause/resume from ever going negative. */
     if(!app.rx_drain_timer) {
         app.rx_drain_timer = lv_timer_create(rx_drain_timer_cb, RX_DRAIN_INTERVAL_MS, NULL);
     }
@@ -266,22 +257,7 @@ static void on_enter(void)
     ir_app_rx_pause_seed_initial();
 
     scene_manager_init(&app.scene_mgr, &ir_scene_handlers, &app);
-
-    /* Deep-sleep resume: if the device woke from a saved-remote
-     * session, re-open that remote and skip Start -> RemoteList. */
-    const char *resume_path = hw_sleep_get_resume_payload();
-    bool resumed = false;
-    if(resume_path && resume_path[0]) {
-        if(ir_remote_load(&app.current_remote, resume_path) == ESP_OK) {
-            app.is_learning_new_remote = false;
-            scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Remote);
-            ESP_LOGI(TAG, "resumed remote from RTC slot: %s", resume_path);
-            resumed = true;
-        }
-    }
-    if(!resumed) {
-        scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
-    }
+    scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
 
     lv_screen_load(app.screen);
 }
@@ -327,17 +303,12 @@ static SceneManager *get_scene_manager(void) { return &app.scene_mgr; }
 
 IrApp *ir_app_get(void) { return &app; }
 
-/* Refcounted: pause and resume nest safely so the brute scene + a TX
- * Self-Test fired from inside it (or any future caller) compose. App
- * boots with depth=1 (RX off); only Learn scene drops it to 0. */
+/* Refcounted so brute + nested TX self-test compose. Boots at depth=1
+ * (RX off); only Learn scene ever drops it to 0. */
 static int s_rx_pause_depth;
 
 void ir_app_rx_pause_seed_initial(void)
 {
-    /* Boot-time pre-arm: bumps refcount to 1 without touching hw_ir_rx
-     * (which has never been started yet, so a pair of stop/start would
-     * be wasted work). Learn::on_enter's resume then drops it to 0 and
-     * starts RX for the first time. */
     s_rx_pause_depth = 1;
 }
 
@@ -363,9 +334,6 @@ void ir_app_rx_resume(void)
     if(app.rx_drain_timer) lv_timer_resume(app.rx_drain_timer);
 }
 
-/* Helper used by Settings TX Self-Test: matches lv_timer_cb_t signature so
- * a one-shot lv_timer_create(..., 2500, NULL) auto-resumes RX after the
- * burst plus a small safety margin and then deletes itself. */
 void ir_app_rx_resume_then_delete_timer(lv_timer_t *t)
 {
     ir_app_rx_resume();

@@ -35,7 +35,6 @@ void nfc_scene_saved_list_on_enter(void *ctx) {
     }
 
     if(!any_saved) {
-        /* Show empty state using popup instead */
         view_popup_reset(app->popup);
         view_popup_set_icon(app->popup, LV_SYMBOL_SD_CARD, COLOR_DIM);
         view_popup_set_header(app->popup, "No Saved Cards", COLOR_SECONDARY);

@@ -61,14 +61,12 @@ void subghz_scene_waveform_on_enter(void *ctx)
     lv_obj_t *view = view_custom_get_view(app->custom);
     view_custom_clean(app->custom);
 
-    /* Title */
     lv_obj_t *title = lv_label_create(view);
     lv_label_set_text(title, "Waveform");
     lv_obj_set_style_text_font(title, FONT_TITLE, 0);
     lv_obj_set_style_text_color(title, COLOR_GREEN, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 32);
 
-    /* Decoded info */
     if(app->decoded_valid) {
         char info[48];
         lv_snprintf(info, sizeof(info), "%s  0x%lX  %ub",
@@ -82,7 +80,7 @@ void subghz_scene_waveform_on_enter(void *ctx)
         lv_obj_align(dec_lbl, LV_ALIGN_TOP_MID, 0, 62);
     }
 
-    /* Waveform canvas -- smaller to fit circular display */
+    /* CO5300 is round; canvas height capped to fit visible inscribed area */
     wv_canvas = waveform_view_create(view, CANVAS_W, CANVAS_H);
     lv_obj_align(wv_canvas, LV_ALIGN_CENTER, 0, -10);
 
@@ -90,7 +88,6 @@ void subghz_scene_waveform_on_enter(void *ctx)
         waveform_view_set_data(wv_canvas, app->raw.samples, app->raw.count);
     }
 
-    /* Control buttons */
     lv_obj_t *ctrl_row = lv_obj_create(view);
     lv_obj_set_size(ctrl_row, 320, 52);
     lv_obj_align(ctrl_row, LV_ALIGN_BOTTOM_MID, 0, -48);

@@ -31,7 +31,7 @@ static void on_open(void *ctx, uint32_t idx)
     ir_remote_free(&app->current_remote);
     if(ir_remote_load(&app->current_remote, path) != ESP_OK) return;
     app->is_learning_new_remote = false;
-    /* Replace this scene with Remote so back-gesture goes RemoteList. */
+    /* Replace Actions with Remote so back-gesture goes to RemoteList. */
     scene_manager_search_and_switch_to_previous_scene(&app->scene_mgr,
                                                       ir_SCENE_RemoteList);
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Remote);
@@ -50,7 +50,6 @@ static void on_rename(void *ctx, uint32_t idx)
     app->edit_op = IR_EDIT_OP_RENAME_REMOTE;
     snprintf(app->name_buffer, sizeof(app->name_buffer), "%s",
              app->current_remote.name);
-    /* Pop to RemoteList, then push EditRename. */
     scene_manager_search_and_switch_to_previous_scene(&app->scene_mgr,
                                                       ir_SCENE_RemoteList);
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_EditRename);

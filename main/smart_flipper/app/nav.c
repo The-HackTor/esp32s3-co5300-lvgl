@@ -1,12 +1,20 @@
 #include "nav.h"
 #include "app_manager.h"
 
-static bool nav_in_progress;  /* re-entrancy guard */
+#include <stdatomic.h>
+
+static atomic_bool nav_in_progress;
+
+static bool nav_try_claim(void)
+{
+    bool expected = false;
+    return atomic_compare_exchange_strong(&nav_in_progress, &expected, true);
+}
 
 static void gesture_handler(lv_event_t *e)
 {
     (void)e;
-    if(nav_in_progress) return;
+    if(atomic_load(&nav_in_progress)) return;
 
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
     if(dir == LV_DIR_RIGHT) {
@@ -17,12 +25,13 @@ static void gesture_handler(lv_event_t *e)
 
 void nav_back(void)
 {
-    if(nav_in_progress) return;
+    if(!nav_try_claim()) return;
 
     AppId cur = app_manager_get_current();
-    if(cur == APP_ID_NONE) return;
-
-    nav_in_progress = true;
+    if(cur == APP_ID_NONE) {
+        atomic_store(&nav_in_progress, false);
+        return;
+    }
 
     const AppDescriptor *desc = app_manager_get_descriptor(cur);
     if(desc && desc->get_scene_manager) {
@@ -34,15 +43,14 @@ void nav_back(void)
         app_manager_exit_current();
     }
 
-    nav_in_progress = false;
+    atomic_store(&nav_in_progress, false);
 }
 
 void nav_home(void)
 {
-    if(nav_in_progress) return;
-    nav_in_progress = true;
+    if(!nav_try_claim()) return;
     app_manager_exit_current();
-    nav_in_progress = false;
+    atomic_store(&nav_in_progress, false);
 }
 
 void nav_install_gesture(lv_obj_t *screen)

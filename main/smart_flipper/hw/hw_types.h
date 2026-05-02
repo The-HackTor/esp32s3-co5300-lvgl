@@ -20,10 +20,10 @@ enum nfc_card_type {
 #define SIM_SUBGHZ_MAX_SAMPLES SUBGHZ_RAW_MAX_SAMPLES
 
 struct subghz_raw {
-    int32_t  samples[SUBGHZ_RAW_MAX_SAMPLES];  /* preview, first N samples */
-    uint16_t count;                             /* samples in preview (\u2264 N) */
-    uint32_t full_count;                        /* total samples streamed to file */
-    char     file_path[SUBGHZ_RAW_FILE_PATH_LEN]; /* "" if not backed by a file */
+    int32_t  samples[SUBGHZ_RAW_MAX_SAMPLES];     /* preview (first N) */
+    uint16_t count;                                /* samples in preview */
+    uint32_t full_count;                           /* total streamed to file */
+    char     file_path[SUBGHZ_RAW_FILE_PATH_LEN];  /* "" = not file-backed */
 };
 
 typedef struct subghz_raw SimSubghzRaw;

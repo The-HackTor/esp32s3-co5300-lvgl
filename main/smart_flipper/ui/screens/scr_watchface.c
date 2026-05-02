@@ -20,29 +20,25 @@ static lv_obj_t *ota_arc;
 static lv_obj_t *ota_lbl;
 static bool colon_visible;
 
-/* Draw dot markers around the rim -- larger dots at 12/3/6/9 */
 static void draw_dot_markers(lv_obj_t *parent)
 {
     int cx = DISP_W / 2;
     int cy = DISP_H / 2;
 
     for(int i = 0; i < 60; i++) {
-        int angle_deg = i * 6 - 90; /* 0 = 12 o'clock */
+        int angle_deg = i * 6 - 90;
         int r, size;
         lv_color_t color;
 
         if(i % 15 == 0) {
-            /* Cardinal positions: 12, 3, 6, 9 */
             r = 216;
             size = 8;
             color = COLOR_PRIMARY;
         } else if(i % 5 == 0) {
-            /* Hour positions */
             r = 218;
             size = 5;
             color = COLOR_SECONDARY;
         } else {
-            /* Minute ticks -- skip for cleaner look */
             continue;
         }
 
@@ -146,7 +142,6 @@ static void watchface_gesture(lv_event_t *e)
     }
 }
 
-/* Create a single complication widget (icon + value + label, stacked vertically) */
 static lv_obj_t *create_complication(lv_obj_t *parent, const char *icon,
                                       const char *label_text, const char *value,
                                       lv_color_t accent, int x_offset)
@@ -183,22 +178,23 @@ static lv_obj_t *create_complication(lv_obj_t *parent, const char *icon,
 
 lv_obj_t *scr_watchface_create(void)
 {
+    static lv_obj_t *s_scr;
+    if(s_scr) return s_scr;
+
     lv_obj_t *scr = lv_obj_create(NULL);
+    s_scr = scr;
     lv_obj_add_style(scr, &style_screen, 0);
     lv_obj_set_size(scr, DISP_W, DISP_H);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* ---- dot markers at rim ---- */
     draw_dot_markers(scr);
 
-    /* ---- battery (top centre) ---- */
     lbl_battery = lv_label_create(scr);
     lv_obj_set_style_text_font(lbl_battery, FONT_SMALL, 0);
     lv_obj_set_style_text_color(lbl_battery, COLOR_SECONDARY, 0);
     lv_label_set_text(lbl_battery, LV_SYMBOL_BATTERY_FULL "  85%");
     lv_obj_align(lbl_battery, LV_ALIGN_TOP_MID, 0, 60);
 
-    /* ---- date ---- */
     lbl_date = lv_label_create(scr);
     lv_obj_set_style_text_font(lbl_date, FONT_SMALL, 0);
     lv_obj_set_style_text_color(lbl_date, COLOR_SECONDARY, 0);
@@ -206,9 +202,6 @@ lv_obj_t *scr_watchface_create(void)
     lv_label_set_text(lbl_date, "");
     lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, -60);
 
-    /* ---- time display: HH : MM ss ----
-     * 48px is the largest built-in Montserrat. Use generous letter-spacing
-     * and wider spread to fill the center area.  */
     lbl_hour = lv_label_create(scr);
     lv_obj_set_style_text_font(lbl_hour, FONT_TIME, 0);
     lv_obj_set_style_text_color(lbl_hour, COLOR_PRIMARY, 0);
@@ -236,7 +229,6 @@ lv_obj_t *scr_watchface_create(void)
     lv_label_set_text(lbl_sec, "00");
     lv_obj_align(lbl_sec, LV_ALIGN_CENTER, 108, -6);
 
-    /* ---- thin divider ---- */
     lv_obj_t *divider = lv_obj_create(scr);
     lv_obj_set_size(divider, 180, 1);
     lv_obj_align(divider, LV_ALIGN_CENTER, 0, 30);
@@ -245,7 +237,6 @@ lv_obj_t *scr_watchface_create(void)
     lv_obj_set_style_border_width(divider, 0, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    /* ---- complications: three in a row below the divider ---- */
     lbl_steps_val = create_complication(scr, LV_SYMBOL_SHUFFLE, "STEPS",
                                         "0", COLOR_GREEN, -120);
     lbl_bpm_val   = create_complication(scr, LV_SYMBOL_WARNING, "BPM",
@@ -253,19 +244,16 @@ lv_obj_t *scr_watchface_create(void)
     lbl_temp_val  = create_complication(scr, LV_SYMBOL_EYE_OPEN, "TEMP",
                                         "--", COLOR_CYAN, 120);
 
-    /* ---- swipe hint ---- */
     lv_obj_t *hint = lv_label_create(scr);
     lv_label_set_text(hint, LV_SYMBOL_UP);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x333333), 0);
     lv_obj_set_style_text_font(hint, FONT_SMALL, 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -48);
 
-    /* ---- interaction ---- */
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, watchface_clicked, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_add_event_cb(scr, watchface_gesture, LV_EVENT_GESTURE, NULL);
 
-    /* ---- observers ---- */
     lv_subject_add_observer(&subject_time, time_observer_cb, NULL);
     lv_subject_add_observer(&subject_date, date_observer_cb, NULL);
     lv_subject_add_observer(&subject_second, seconds_observer_cb, NULL);
@@ -273,7 +261,6 @@ lv_obj_t *scr_watchface_create(void)
     lv_subject_add_observer(&subject_steps, steps_observer_cb, NULL);
     lv_subject_add_observer(&subject_temperature, temp_observer_cb, NULL);
 
-    /* ---- OTA overlay ---- */
     ota_overlay = lv_obj_create(scr);
     lv_obj_set_size(ota_overlay, DISP_W, DISP_H);
     lv_obj_center(ota_overlay);

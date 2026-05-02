@@ -3,11 +3,6 @@
 #include "ui/styles.h"
 #include <stdio.h>
 
-/*
- * Read Result -- card summary with Retry | More.
- * Uses view_info with short labels to avoid circular edge clipping.
- */
-
 enum { NFC_EVT_RETRY = 0x300, NFC_EVT_MORE };
 
 static void retry_cb(void *ctx) {

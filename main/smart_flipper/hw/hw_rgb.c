@@ -19,7 +19,7 @@ static const char *TAG = "hw_rgb";
 #define RGB_CH_G         LEDC_CHANNEL_1
 #define RGB_CH_B         LEDC_CHANNEL_2
 
-#define RGB_DUTY_FULL    ((1U << 13) - 1U)         /* 8191 */
+#define RGB_DUTY_FULL    ((1U << 13) - 1U)
 #define RGB_DUTY_CAP_PCT 15
 #define RGB_DUTY_CAP     (RGB_DUTY_FULL * RGB_DUTY_CAP_PCT / 100)
 
@@ -28,7 +28,6 @@ static bool               s_inited;
 
 static uint32_t scale_to_duty(uint8_t v)
 {
-    /* 0..255 -> 0..RGB_DUTY_CAP, linear */
     return (uint32_t)v * RGB_DUTY_CAP / 255U;
 }
 

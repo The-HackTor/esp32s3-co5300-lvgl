@@ -42,8 +42,6 @@ static esp_err_t do_save(IrApp *app)
     esp_err_t err = ir_remote_init(&r, app->name_buffer);
     if(err != ESP_OK) return err;
 
-    /* Store under the universal-DB button label (e.g. "POWER") so the user
-     * sees the action they were trying to find when reopening the remote. */
     IrUniversalCategory cat = (IrUniversalCategory)app->universal_category;
     const char *btn_label = ir_universal_db_button_name(cat,
                                                         (size_t)app->univ_button_idx);
@@ -60,7 +58,6 @@ static esp_err_t do_save(IrApp *app)
         ir_remote_free(&r);
         return err;
     }
-    /* append_button copies; free our local */
     ir_button_free(&b);
 
     err = ir_remote_save(&r);
@@ -138,7 +135,6 @@ bool ir_scene_universal_save_on_event(void *ctx, SceneEvent event)
             app->univ_save_valid = false;
         }
 
-        /* Pop UniversalSave + UniversalBrute, returning to the button list. */
         scene_manager_search_and_switch_to_previous_scene(&app->scene_mgr,
                                                           ir_SCENE_UniversalCategory);
         return true;

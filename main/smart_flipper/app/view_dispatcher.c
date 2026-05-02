@@ -19,6 +19,7 @@ struct ViewDispatcher {
 ViewDispatcher *view_dispatcher_alloc(lv_obj_t *screen)
 {
     ViewDispatcher *vd = calloc(1, sizeof(ViewDispatcher));
+    if(!vd) return NULL;
     vd->screen = screen;
     vd->current_view_id = VIEW_NONE;
     return vd;
@@ -50,8 +51,8 @@ static ViewEntry *find_entry(ViewDispatcher *vd, uint32_t view_id)
 
 void view_dispatcher_add_view(ViewDispatcher *vd, uint32_t view_id, ViewModule module)
 {
-    /* View roots are already children of the app screen (created hidden in alloc).
-     * Just register the module -- no reparenting needed. */
+    /* View roots are already parented to the app screen (created hidden in
+     * the module's alloc); we only register, never reparent. */
     for(int i = 0; i < VIEW_DISPATCHER_MAX_VIEWS; i++) {
         if(!vd->views[i].used) {
             vd->views[i].view_id = view_id;
@@ -67,19 +68,16 @@ void view_dispatcher_remove_view(ViewDispatcher *vd, uint32_t view_id)
     ViewEntry *entry = find_entry(vd, view_id);
     if(!entry) return;
 
-    lv_obj_t *view = view_module_get_view(&entry->module);
-    lv_obj_add_flag(view, LV_OBJ_FLAG_HIDDEN);
-
     if(vd->current_view_id == view_id) {
         vd->current_view_id = VIEW_NONE;
     }
+    view_module_destroy(&entry->module);
     entry->used = false;
 }
 
 void view_dispatcher_switch_to_view(ViewDispatcher *vd, uint32_t view_id)
 {
     if(!vd) return;
-    /* Hide current view */
     if(vd->current_view_id != VIEW_NONE) {
         ViewEntry *cur = find_entry(vd, vd->current_view_id);
         if(cur) {
@@ -88,14 +86,13 @@ void view_dispatcher_switch_to_view(ViewDispatcher *vd, uint32_t view_id)
         }
     }
 
-    /* Show new view -- reset position + opacity in case a prior animated
-     * transition left this view slid off-screen (x = -DISP_W) or faded out.
-     * Without these resets, going Scene A (animated) -> Scene B -> Scene A
-     * (non-animated) leaves Scene A invisible at x = -DISP_W. */
+    /* Reset x/opa: a prior animated transition may have left this view
+     * slid to x=-DISP_W or faded; without the reset, A->(animated)->B->A
+     * (non-animated) returns to A invisibly off-screen. */
     ViewEntry *next = find_entry(vd, view_id);
     if(next) {
         lv_obj_t *next_view = view_module_get_view(&next->module);
-        lv_anim_delete(next_view, NULL);   /* cancel any pending animation */
+        lv_anim_delete(next_view, NULL);
         lv_obj_set_x(next_view, 0);
         lv_obj_set_style_opa(next_view, LV_OPA_COVER, 0);
         lv_obj_remove_flag(next_view, LV_OBJ_FLAG_HIDDEN);

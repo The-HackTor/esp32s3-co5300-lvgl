@@ -205,19 +205,16 @@ void ir_scene_ac_on_enter(void *ctx)
     view_custom_clean(app->custom);
     back_button_create(view);
 
-    /* Brand header */
     s_brand_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_brand_lbl, FONT_TITLE, 0);
     lv_obj_set_style_text_color(s_brand_lbl, COLOR_CYAN, 0);
     lv_obj_align(s_brand_lbl, LV_ALIGN_TOP_MID, 0, 36);
 
-    /* Big temp number */
     s_temp_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_temp_lbl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(s_temp_lbl, COLOR_PRIMARY, 0);
     lv_obj_align(s_temp_lbl, LV_ALIGN_TOP_MID, 0, 100);
 
-    /* Temp -/+ buttons flanking */
     make_pill(view, LV_SYMBOL_MINUS, COLOR_BLUE,  64, 64, on_temp, app, -1);
     {
         lv_obj_t *minus_btn = lv_obj_get_child(view, lv_obj_get_child_count(view) - 1);
@@ -229,7 +226,6 @@ void ir_scene_ac_on_enter(void *ctx)
         lv_obj_align(plus_btn, LV_ALIGN_TOP_MID, 120, 88);
     }
 
-    /* Mode pill */
     s_mode_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_mode_lbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(s_mode_lbl, COLOR_CYAN, 0);
@@ -243,7 +239,6 @@ void ir_scene_ac_on_enter(void *ctx)
     lv_obj_add_flag(mode_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(mode_btn, on_mode, LV_EVENT_CLICKED, app);
 
-    /* Fan pill */
     s_fan_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_fan_lbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(s_fan_lbl, COLOR_ORANGE, 0);
@@ -257,7 +252,6 @@ void ir_scene_ac_on_enter(void *ctx)
     lv_obj_add_flag(fan_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(fan_btn, on_fan, LV_EVENT_CLICKED, app);
 
-    /* Swing pill */
     s_swing_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_swing_lbl, FONT_BODY, 0);
     lv_obj_set_style_text_color(s_swing_lbl, COLOR_SECONDARY, 0);
@@ -271,7 +265,6 @@ void ir_scene_ac_on_enter(void *ctx)
     lv_obj_add_flag(swing_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(swing_btn, on_swing, LV_EVENT_CLICKED, app);
 
-    /* Power button at bottom */
     s_power_lbl = lv_label_create(view);
     lv_obj_set_style_text_font(s_power_lbl, FONT_TITLE, 0);
     lv_obj_align(s_power_lbl, LV_ALIGN_BOTTOM_MID, 0, -40);

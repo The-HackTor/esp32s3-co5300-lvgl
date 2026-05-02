@@ -18,7 +18,6 @@ void transition_apply(lv_obj_t *outgoing, lv_obj_t *incoming,
     if(type == TransitionNone) return;
 
     if(type == TransitionFadeIn) {
-        /* Incoming: fade from transparent to opaque */
         if(incoming) {
             lv_obj_set_style_opa(incoming, LV_OPA_TRANSP, 0);
             lv_anim_t a;
@@ -30,7 +29,6 @@ void transition_apply(lv_obj_t *outgoing, lv_obj_t *incoming,
             lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
             lv_anim_start(&a);
         }
-        /* Outgoing: fade out */
         if(outgoing) {
             lv_anim_t a;
             lv_anim_init(&a);
@@ -45,10 +43,8 @@ void transition_apply(lv_obj_t *outgoing, lv_obj_t *incoming,
         return;
     }
 
-    /* Slide transitions */
     int32_t offset = (type == TransitionSlideLeft) ? DISP_W : -DISP_W;
 
-    /* Incoming: slide in from the offset side */
     if(incoming) {
         lv_obj_set_x(incoming, offset);
         lv_anim_t a;
@@ -61,7 +57,6 @@ void transition_apply(lv_obj_t *outgoing, lv_obj_t *incoming,
         lv_anim_start(&a);
     }
 
-    /* Outgoing: slide out in the opposite direction */
     if(outgoing) {
         lv_anim_t a;
         lv_anim_init(&a);

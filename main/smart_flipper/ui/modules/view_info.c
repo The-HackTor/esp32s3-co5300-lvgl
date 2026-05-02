@@ -27,7 +27,6 @@ static void btn_clicked(lv_event_t *e)
     if(bctx && bctx->cb) bctx->cb(bctx->ctx);
 }
 
-/* --- ViewModule vtable --- */
 static lv_obj_t *info_get_view(void *m) { return ((ViewInfo *)m)->root; }
 
 static void info_reset(void *m)
@@ -66,7 +65,6 @@ ViewInfo *view_info_alloc(lv_obj_t *parent)
     lv_obj_set_style_pad_all(info->root, 0, 0);
     lv_obj_remove_flag(info->root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header bar */
     info->header_bar = lv_obj_create(info->root);
     lv_obj_set_size(info->header_bar, DISP_W, 80);
     lv_obj_align(info->header_bar, LV_ALIGN_TOP_MID, 0, 0);
@@ -82,7 +80,7 @@ ViewInfo *view_info_alloc(lv_obj_t *parent)
     lv_obj_set_style_text_color(info->title_lbl, COLOR_PRIMARY, 0);
     lv_obj_align(info->title_lbl, LV_ALIGN_TOP_MID, 0, 24);
 
-    /* Scrollable content area -- narrower to fit inside circular display */
+    /* Narrower than DISP_W so list rows clear the round-display rim. */
     info->scroll = lv_obj_create(info->root);
     lv_obj_set_size(info->scroll, DISP_W - 80, DISP_H - 80);
     lv_obj_align(info->scroll, LV_ALIGN_TOP_MID, 0, 80);

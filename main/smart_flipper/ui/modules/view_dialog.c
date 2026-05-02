@@ -50,7 +50,6 @@ static lv_obj_t *create_dialog_button(ViewDialog *dlg, lv_obj_t *parent)
     return btn;
 }
 
-/* --- ViewModule vtable --- */
 static lv_obj_t *dialog_get_view(void *m) { return ((ViewDialog *)m)->root; }
 
 static void dialog_reset(void *m)
@@ -92,23 +91,19 @@ ViewDialog *view_dialog_alloc(lv_obj_t *parent)
     lv_obj_set_style_pad_all(dlg->root, 0, 0);
     lv_obj_remove_flag(dlg->root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Back button at top left */
     back_button_create(dlg->root);
 
-    /* Icon */
     dlg->icon_lbl = lv_label_create(dlg->root);
     lv_label_set_text(dlg->icon_lbl, "");
     lv_obj_set_style_text_font(dlg->icon_lbl, FONT_TIME, 0);
     lv_obj_align(dlg->icon_lbl, LV_ALIGN_CENTER, 0, -80);
 
-    /* Header */
     dlg->header_lbl = lv_label_create(dlg->root);
     lv_label_set_text(dlg->header_lbl, "");
     lv_obj_set_style_text_font(dlg->header_lbl, FONT_TITLE, 0);
     lv_obj_set_style_text_color(dlg->header_lbl, COLOR_PRIMARY, 0);
     lv_obj_align(dlg->header_lbl, LV_ALIGN_CENTER, 0, -20);
 
-    /* Text */
     dlg->text_lbl = lv_label_create(dlg->root);
     lv_label_set_text(dlg->text_lbl, "");
     lv_obj_set_style_text_font(dlg->text_lbl, FONT_BODY, 0);
@@ -117,7 +112,6 @@ ViewDialog *view_dialog_alloc(lv_obj_t *parent)
     lv_obj_set_width(dlg->text_lbl, 360);
     lv_obj_align(dlg->text_lbl, LV_ALIGN_CENTER, 0, 20);
 
-    /* Button row */
     dlg->btn_row = lv_obj_create(dlg->root);
     lv_obj_set_size(dlg->btn_row, 400, 70);
     lv_obj_align(dlg->btn_row, LV_ALIGN_BOTTOM_MID, 0, -60);

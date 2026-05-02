@@ -40,7 +40,6 @@ void app_manager_launch(AppId id)
             mgr.current = id;
             arc_menu_hide();
 
-            /* on_enter is lightweight -- just loads screen + starts hw */
             if(mgr.apps[i]->on_enter) {
                 mgr.apps[i]->on_enter();
             } else if(mgr.apps[i]->get_screen) {
@@ -58,10 +57,8 @@ void app_manager_exit_current(void)
     AppId exiting = mgr.current;
     mgr.current = APP_ID_NONE;
 
-    /* Switch to home screen -- instant, no allocation */
     lv_screen_load(mgr.home_screen);
 
-    /* on_leave is lightweight -- stop timers/hw, reset scene state */
     for(uint32_t i = 0; i < mgr.count; i++) {
         if(mgr.apps[i]->id == exiting) {
             if(mgr.apps[i]->on_leave) {

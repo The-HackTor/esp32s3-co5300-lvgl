@@ -1,6 +1,3 @@
-/* In-RAM stub for the card storage layer. Real impl uses Zephyr NVS; this
- * keeps everything volatile for the duration of a session. */
-
 #include "card_store.h"
 #include <string.h>
 #include "esp_log.h"

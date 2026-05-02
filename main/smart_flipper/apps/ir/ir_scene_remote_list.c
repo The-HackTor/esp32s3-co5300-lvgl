@@ -3,7 +3,6 @@
 #include "ui/styles.h"
 #include "ui/transition.h"
 #include "store/ir_store.h"
-#include "hw/hw_sleep.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -31,9 +30,6 @@ static void remote_selected(void *ctx, uint32_t index)
                                                 (uint32_t)TransitionFadeIn, 120);
         return;
     }
-    /* Persist into RTC slow memory so a deep-sleep wake can re-open
-     * the same remote and skip the picker. Cleared on remote delete. */
-    hw_sleep_set_resume_payload(app->current_remote.path);
     app->is_learning_new_remote = false;
     scene_manager_next_scene(&app->scene_mgr, ir_SCENE_Remote);
 }

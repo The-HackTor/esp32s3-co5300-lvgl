@@ -2,6 +2,7 @@
 #include "subghz_scenes.h"
 #include "ui/styles.h"
 #include "store/signal_store.h"
+#include <stdio.h>
 #include <string.h>
 
 static void card_selected(void *context, uint32_t index)
@@ -25,7 +26,8 @@ static void card_selected(void *context, uint32_t index)
     app->selected_slot = (int)index;
 
     if(meta.protocol[0] != '\0') {
-        app->last_decoded.protocol = meta.protocol;
+        snprintf(app->protocol_buf, sizeof(app->protocol_buf), "%s", meta.protocol);
+        app->last_decoded.protocol = app->protocol_buf;
         app->last_decoded.data = meta.decoded_data;
         app->last_decoded.bits = meta.decoded_bits;
         app->decoded_valid = true;
@@ -76,7 +78,6 @@ void subghz_scene_saved_list_on_enter(void *ctx)
     }
 
     if(!any) {
-        /* Show empty-state popup instead */
         view_popup_reset(app->popup);
         view_popup_set_icon(app->popup, LV_SYMBOL_AUDIO, COLOR_DIM);
         view_popup_set_header(app->popup, "No Saved Signals", COLOR_SECONDARY);

@@ -31,7 +31,6 @@ static void cancel_clicked(lv_event_t *e)
     if(act->cancel_cb) act->cancel_cb(act->cancel_ctx);
 }
 
-/* --- ViewModule vtable --- */
 static lv_obj_t *action_get_view(void *m) { return ((ViewAction *)m)->root; }
 
 static void action_reset(void *m)
@@ -81,7 +80,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_set_style_pad_all(a->root, 0, 0);
     lv_obj_remove_flag(a->root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header bar */
     a->header_bar = lv_obj_create(a->root);
     lv_obj_set_size(a->header_bar, DISP_W, 120);
     lv_obj_align(a->header_bar, LV_ALIGN_TOP_MID, 0, 0);
@@ -105,7 +103,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_set_width(a->header_detail_lbl, 360);
     lv_obj_align(a->header_detail_lbl, LV_ALIGN_TOP_MID, 0, 54);
 
-    /* Animated arc (rotating indicator) */
     a->arc = lv_arc_create(a->root);
     lv_obj_set_size(a->arc, 150, 150);
     lv_obj_align(a->arc, LV_ALIGN_CENTER, 0, -10);
@@ -120,7 +117,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_remove_flag(a->arc, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(a->arc, LV_OBJ_FLAG_HIDDEN);
 
-    /* Spinner */
     a->spinner = lv_spinner_create(a->root);
     lv_spinner_set_anim_params(a->spinner, 1000, 270);
     lv_obj_set_size(a->spinner, 120, 120);
@@ -130,7 +126,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_set_style_arc_color(a->spinner, COLOR_DIM, LV_PART_MAIN);
     lv_obj_add_flag(a->spinner, LV_OBJ_FLAG_HIDDEN);
 
-    /* Status text -- inside the arc/spinner center */
     a->text_lbl = lv_label_create(a->root);
     lv_label_set_text(a->text_lbl, "");
     lv_obj_set_style_text_font(a->text_lbl, FONT_TIME, 0);
@@ -139,7 +134,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_set_width(a->text_lbl, 120);
     lv_obj_align(a->text_lbl, LV_ALIGN_CENTER, 0, -10);
 
-    /* Detail text -- below the arc with good spacing */
     a->detail_lbl = lv_label_create(a->root);
     lv_label_set_text(a->detail_lbl, "");
     lv_obj_set_style_text_font(a->detail_lbl, &lv_font_montserrat_28, 0);
@@ -148,7 +142,6 @@ ViewAction *view_action_alloc(lv_obj_t *parent)
     lv_obj_set_width(a->detail_lbl, 380);
     lv_obj_align(a->detail_lbl, LV_ALIGN_CENTER, 0, 90);
 
-    /* Cancel button */
     a->cancel_btn = lv_button_create(a->root);
     lv_obj_set_size(a->cancel_btn, 200, 52);
     lv_obj_set_style_bg_color(a->cancel_btn, COLOR_RED, 0);

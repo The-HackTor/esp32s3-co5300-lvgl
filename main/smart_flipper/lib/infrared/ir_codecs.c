@@ -236,6 +236,106 @@ esp_err_t ir_codecs_encode(const IrDecoded *in,
     return ESP_OK;
 }
 
+size_t ir_codecs_min_repeat_count(const char *protocol)
+{
+    if(!protocol || !protocol[0]) return 1;
+    InfraredProtocol p = infrared_get_protocol_by_name(protocol);
+    if(!infrared_is_protocol_valid(p)) return 1;
+    size_t n = infrared_get_protocol_min_repeat_count(p);
+    return n ? n : 1;
+}
+
+static esp_err_t encode_n_cycles(InfraredEncoderHandler *handler, size_t cycles,
+                                 uint16_t **out_buf, size_t *out_n)
+{
+    size_t cap = 256;
+    uint16_t *buf = malloc(cap * sizeof(uint16_t));
+    if(!buf) return ESP_ERR_NO_MEM;
+
+    size_t n = 0;
+    bool   started = false;
+    bool   expected_level = true;
+    size_t cycles_done = 0;
+
+    while(cycles_done < cycles) {
+        uint32_t duration = 0;
+        bool     level    = false;
+        InfraredStatus s = infrared_encode(handler, &duration, &level);
+        if(s == InfraredStatusError) { free(buf); return ESP_FAIL; }
+
+        if(!started) {
+            if(!level) {
+                if(s == InfraredStatusDone) cycles_done++;
+                continue;
+            }
+            started = true;
+        }
+
+        if(duration > 32767) duration = 32767;
+
+        if(level == expected_level) {
+            if(n == cap) {
+                size_t new_cap = cap * 2;
+                uint16_t *r = realloc(buf, new_cap * sizeof(uint16_t));
+                if(!r) { free(buf); return ESP_ERR_NO_MEM; }
+                buf = r;
+                cap = new_cap;
+            }
+            buf[n++] = (uint16_t)duration;
+            expected_level = !expected_level;
+        } else if(n > 0) {
+            uint32_t merged = (uint32_t)buf[n - 1] + duration;
+            if(merged > 32767) merged = 32767;
+            buf[n - 1] = (uint16_t)merged;
+        }
+
+        if(s == InfraredStatusDone) cycles_done++;
+    }
+
+    if(n == 0) { free(buf); *out_buf = NULL; *out_n = 0; return ESP_FAIL; }
+    *out_buf = buf;
+    *out_n   = n;
+    return ESP_OK;
+}
+
+esp_err_t ir_codecs_encode_full(const IrDecoded *in, size_t cycles,
+                                uint16_t **out_timings, size_t *out_n,
+                                uint32_t *out_freq_hz)
+{
+    if(!in || !out_timings || !out_n || !out_freq_hz) return ESP_ERR_INVALID_ARG;
+    if(cycles == 0) cycles = 1;
+
+    InfraredProtocol proto = infrared_get_protocol_by_name(in->protocol);
+    if(!infrared_is_protocol_valid(proto)) {
+        ir_codec_send_fn fn = codec_db_send_lookup(in->protocol);
+        if(fn) return fn(in->address, in->command, in->raw_value,
+                         out_timings, out_n, out_freq_hz);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    InfraredEncoderHandler *handler = infrared_alloc_encoder();
+    if(!handler) return ESP_ERR_NO_MEM;
+
+    InfraredMessage msg = {
+        .protocol = proto,
+        .address  = in->address,
+        .command  = in->command,
+        .repeat   = false,
+    };
+    infrared_reset_encoder(handler, &msg);
+
+    uint16_t *buf = NULL;
+    size_t    n   = 0;
+    esp_err_t err = encode_n_cycles(handler, cycles, &buf, &n);
+    infrared_free_encoder(handler);
+    if(err != ESP_OK) return err;
+
+    *out_timings = buf;
+    *out_n       = n;
+    *out_freq_hz = infrared_get_protocol_frequency(proto);
+    return ESP_OK;
+}
+
 esp_err_t ir_codecs_encode_with_repeat(const IrDecoded *in,
                                        uint16_t **out_timings,        size_t *out_n,
                                        uint16_t **out_repeat_timings, size_t *out_repeat_n,

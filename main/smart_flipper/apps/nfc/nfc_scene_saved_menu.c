@@ -3,11 +3,6 @@
 #include "ui/styles.h"
 #include "store/card_store.h"
 
-/*
- * Saved Menu -- contextual menu for a selected saved card.
- * Like Flipper Zero: Emulate, Info, Delete
- */
-
 enum { IDX_EMULATE, IDX_INFO, IDX_DELETE };
 
 static void submenu_cb(void *context, uint32_t index) {
@@ -25,7 +20,6 @@ static void submenu_cb(void *context, uint32_t index) {
                 card_store_delete((uint8_t)app->selected_slot);
                 app->dump_valid = false;
             }
-            /* Go back to saved list */
             scene_manager_search_and_switch_to_previous_scene(
                 &app->scene_mgr, nfc_SCENE_SavedList);
             break;

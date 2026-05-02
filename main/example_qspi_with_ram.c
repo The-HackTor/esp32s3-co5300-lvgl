@@ -42,22 +42,8 @@ static SemaphoreHandle_t lvgl_mux = NULL;
 static lv_display_t *lvgl_disp = NULL;
 static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 
-/* 0x51 = SH8601 write_display_brightness (1 byte, 0x00..0xFF). Ramped
- * per IDLE_TICK_MS to mask AMOLED step changes.
- *
- * Three-tier idle state machine:
- *   FULL  -- screen active, brightness IDLE_FULL_LEVEL
- *   DIM   -- after dim_threshold_s seconds of touch inactivity
- *   BLANK -- after blank_threshold_s seconds; brightness 0
- *
- * BLANK is implemented as just brightness=0 (black AMOLED pixels draw
- * near-zero current). Earlier we also issued SH8601 SLPIN (cmd 0x10)
- * which hung LVGL whenever the command race-interleaved with an in-
- * flight QSPI flush -- the panel went into sleep mid-DMA and the
- * flush_ready ack never fired, so the LVGL task spun forever waiting
- * on the buffer. The brightness-only path skips the panel state
- * machine entirely; we lose maybe 1-2 mA of additional AMOLED savings
- * but never deadlock. */
+/* SH8601 0x51 = write_display_brightness. BLANK is brightness=0 only;
+ * SLPIN (0x10) deadlocked LVGL when it landed mid-QSPI-flush. */
 #define IDLE_DIM_LEVEL           0x1A
 #define IDLE_FULL_LEVEL          0xFF
 #define IDLE_RAMP_STEP           8
@@ -70,14 +56,42 @@ typedef enum {
 } panel_state_t;
 
 static panel_state_t s_panel_state = PANEL_FULL;
+static uint8_t       s_user_full_level = IDLE_FULL_LEVEL;
+static uint8_t       s_dim_current     = IDLE_FULL_LEVEL;
 
 bool app_panel_is_blanked(void) { return s_panel_state == PANEL_BLANK; }
+
+#define QSPI_DCS(cmd_byte)  ((0x02u << 24) | ((cmd_byte) << 8))
 
 static void idle_dim_set_level(uint8_t level)
 {
     if (!s_panel_io) return;
     uint8_t p = level;
-    esp_lcd_panel_io_tx_param(s_panel_io, 0x51, &p, 1);
+    esp_lcd_panel_io_tx_param(s_panel_io, QSPI_DCS(0x51), &p, 1);
+    if (level == 0) {
+        esp_lcd_panel_io_tx_param(s_panel_io, QSPI_DCS(0x28), NULL, 0);
+    } else if (s_panel_state == PANEL_BLANK) {
+        esp_lcd_panel_io_tx_param(s_panel_io, QSPI_DCS(0x29), NULL, 0);
+    }
+}
+
+void app_panel_blank(void)
+{
+    if (!s_panel_io) return;
+    uint8_t zero = 0;
+    esp_lcd_panel_io_tx_param(s_panel_io, QSPI_DCS(0x51), &zero, 1);
+    esp_lcd_panel_io_tx_param(s_panel_io, QSPI_DCS(0x28), NULL, 0);
+    s_panel_state = PANEL_BLANK;
+}
+
+void app_brightness_set(uint8_t level)
+{
+    if (level < 0x10) level = 0x10;
+    s_user_full_level = level;
+    if (s_panel_state == PANEL_FULL) {
+        idle_dim_set_level(level);
+    }
+    if (lvgl_disp) lv_display_trigger_activity(lvgl_disp);
 }
 
 static void battery_publish_tick(lv_timer_t *t)
@@ -89,16 +103,13 @@ static void battery_publish_tick(lv_timer_t *t)
 static void sleep_reapply_tick(lv_timer_t *t)
 {
     (void)t;
-    /* Cheap path: the apply checks SoC + charging and ratchets the
-     * thresholds. Calling it on a 1-minute cadence is plenty -- SoC
-     * trends faster than the user notices a UI snappiness change. */
     sleep_settings_apply();
 }
 
 static void idle_dim_tick(lv_timer_t *t)
 {
     (void)t;
-    static uint8_t current = IDLE_FULL_LEVEL;
+    static uint32_t last_log_ms = 0;
     if (!lvgl_disp) return;
     uint32_t inactive = lv_display_get_inactive_time(lvgl_disp);
 
@@ -106,33 +117,46 @@ static void idle_dim_tick(lv_timer_t *t)
     const uint32_t dim_ms   = ss->dim_threshold_s   * 1000u;
     const uint32_t blank_ms = ss->blank_threshold_s * 1000u;
 
+    uint32_t now_ms = lv_tick_get();
+    if (now_ms - last_log_ms >= 1000u) {
+        last_log_ms = now_ms;
+        ESP_LOGI(TAG, "idle_tick inactive=%lums state=%d cur=0x%02X",
+                 (unsigned long)inactive, (int)s_panel_state, s_dim_current);
+    }
+
     uint8_t target_level;
     panel_state_t target_state;
+    uint8_t full = s_user_full_level;
+    uint8_t dim_level = IDLE_DIM_LEVEL > full ? full : IDLE_DIM_LEVEL;
     if (inactive >= blank_ms)         { target_state = PANEL_BLANK; target_level = 0; }
-    else if (inactive >= dim_ms)      { target_state = PANEL_DIM;   target_level = IDLE_DIM_LEVEL; }
-    else                              { target_state = PANEL_FULL;  target_level = IDLE_FULL_LEVEL; }
+    else if (inactive >= dim_ms)      { target_state = PANEL_DIM;   target_level = dim_level; }
+    else                              { target_state = PANEL_FULL;  target_level = full; }
 
-    if (current != target_level) {
-        if (target_level > current) {
-            uint16_t next = (uint16_t)current + IDLE_RAMP_STEP;
-            current = (next >= target_level) ? target_level : (uint8_t)next;
+    if (s_dim_current != target_level) {
+        if (target_level > s_dim_current) {
+            uint16_t next = (uint16_t)s_dim_current + IDLE_RAMP_STEP;
+            s_dim_current = (next >= target_level) ? target_level : (uint8_t)next;
         } else {
-            int16_t next = (int16_t)current - IDLE_RAMP_STEP;
-            current = (next <= target_level) ? target_level : (uint8_t)next;
+            int16_t next = (int16_t)s_dim_current - IDLE_RAMP_STEP;
+            s_dim_current = (next <= target_level) ? target_level : (uint8_t)next;
         }
-        idle_dim_set_level(current);
+        idle_dim_set_level(s_dim_current);
         return;
     }
 
-    /* Brightness has reached the target; commit the state change so
-     * downstream code (sleep policy, status bar) can read it. No SPI
-     * traffic beyond the brightness ramp itself. */
     if (s_panel_state != target_state) {
         ESP_LOGI(TAG, "panel state %d -> %d (inactive=%lums, brightness=0x%02X)",
                  (int)s_panel_state, (int)target_state,
-                 (unsigned long)inactive, current);
+                 (unsigned long)inactive, s_dim_current);
         s_panel_state = target_state;
     }
+}
+
+void app_panel_restore_full(void)
+{
+    s_dim_current = s_user_full_level;
+    idle_dim_set_level(s_dim_current);
+    s_panel_state = PANEL_FULL;
 }
 
 #define LCD_HOST    SPI2_HOST
@@ -200,11 +224,7 @@ static bool example_notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
 
 static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    /* Panel stays addressable in every tier (BLANK = brightness=0, not
-     * SLPIN), so we always flush. Earlier the SLPIN path had us gate
-     * this callback on s_panel_state == PANEL_BLANK, but that race-
-     * deadlocked LVGL when SLPIN landed mid-DMA. Keeping the panel
-     * awake makes the flush path identical regardless of dim/blank. */
+    /* Never gate on panel state: SLPIN mid-DMA deadlocks LVGL. */
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
     const int offsetx1 = (READ_LCD_ID == SH8601_ID) ? area->x1 : area->x1 + 0x06;
     const int offsetx2 = (READ_LCD_ID == SH8601_ID) ? area->x2 : area->x2 + 0x06;
@@ -213,9 +233,8 @@ static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
 }
 
-/* SH8601/CO5300 require even CASET/PASET windows for 16bpp data; odd-aligned
- * invalidations (e.g. a colon glyph) get silently re-aligned by the panel and
- * each row drifts. v9 equivalent of v8's disp_drv.rounder_cb. */
+/* SH8601/CO5300 require even CASET/PASET windows for 16bpp; odd-aligned
+ * invalidations distort glyph rows. v9 LV_EVENT_INVALIDATE_AREA rounder. */
 static void example_lvgl_invalidate_area_cb(lv_event_t *e)
 {
     lv_area_t *area = lv_event_get_invalidated_area(e);
@@ -234,6 +253,12 @@ static void example_lvgl_touch_cb(lv_indev_t *indev, lv_indev_data_t *data)
         data->point.x = tp_x;
         data->point.y = tp_y;
         data->state = LV_INDEV_STATE_PRESSED;
+        static uint32_t press_count = 0;
+        if((press_count++ % 20u) == 0) {
+            ESP_LOGI(TAG, "touch press @ (%u,%u) [#%lu]",
+                     (unsigned)tp_x, (unsigned)tp_y,
+                     (unsigned long)press_count);
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
@@ -257,9 +282,7 @@ static void example_lvgl_unlock(void)
     xSemaphoreGive(lvgl_mux);
 }
 
-/* Mount microSD via SDSPI on SPI3_HOST. SPI2 is owned by the QSPI AMOLED at
- * 40 MHz; sharing would hurt LCD flush latency. Failure is non-fatal so the
- * UI still boots without a card -- IR app will show "Insert SD" on save. */
+/* SDSPI on SPI3 (SPI2 reserved for 40 MHz QSPI AMOLED). Failure non-fatal. */
 static void example_mount_sdcard(void)
 {
     const spi_bus_config_t bus = {
@@ -278,9 +301,7 @@ static void example_mount_sdcard(void)
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot          = SD_HOST;
-    /* 20 MHz: 40 MHz is the IDF ceiling but HS-mode negotiation failed at
-     * that rate on this board+card. SDSPI throughput is irrelevant for
-     * KB-scale .ir files; correctness over headline speed. */
+    /* 20 MHz: HS-mode negotiation failed at the 40 MHz IDF ceiling on this board. */
     host.max_freq_khz  = 20000;
 
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
@@ -323,16 +344,29 @@ static void example_lvgl_port_task(void *arg)
     }
 }
 
+/* Runs from the C-runtime constructor table BEFORE app_main, the earliest
+ * user code can land. ROM bootloader and 2nd-stage bootloader leave GPIO16
+ * floating; with no external pull-down on the NMOS gate the LED partially
+ * lights from leakage. Anchor LOW the instant we get control. */
+static void __attribute__((constructor)) early_ir_tx_anchor(void)
+{
+    gpio_hold_dis(GPIO_NUM_16);
+    gpio_config_t cfg = {
+        .mode         = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = 1ULL << 16,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+    gpio_set_level(GPIO_NUM_16, 0);
+    gpio_hold_en(GPIO_NUM_16);
+}
+
 void app_main(void)
 {
-    /* Anchor IR_TX (GPIO16) LOW the moment we have control. The NMOS
-     * gate has no external pulldown, so any time GPIO16 floats (chip
-     * reset through bootloader, ~hundreds of ms before hw_ir_init
-     * runs) the gate leaks high enough to partially turn on the IR
-     * LEDs -- visible as steady purple on a phone camera. Driving
-     * GPIO16 LOW here grounds the gate immediately; hw_ir_init later
-     * preserves the LOW idle via its GPIO-matrix detach. */
     {
+        gpio_hold_dis(GPIO_NUM_16);
         gpio_config_t ir_tx_anchor = {
             .mode = GPIO_MODE_OUTPUT,
             .pin_bit_mask = 1ULL << 16,
@@ -342,6 +376,7 @@ void app_main(void)
         };
         ESP_ERROR_CHECK(gpio_config(&ir_tx_anchor));
         gpio_set_level(GPIO_NUM_16, 0);
+        gpio_hold_en(GPIO_NUM_16);
     }
 
     READ_LCD_ID = read_lcd_id();
@@ -396,33 +431,22 @@ void app_main(void)
 
     Touch_Init();
 
-    /* PCF85063 RTC shares I2C0 with the touch controller, so it can
-     * register as soon as Touch_Init has brought the bus up. RTC seeds
-     * the system wall clock when valid. */
+    /* PCF85063 RTC + QMI8658 IMU share I2C0 with touch; init after Touch_Init. */
     hw_rtc_init();
-
-    /* QMI8658 IMU also lives on I2C0; supplies an accel-magnitude
-     * shake-to-wake signal sampled by the sleep policy. */
     hw_imu_init();
 
 #if EXAMPLE_PIN_NUM_BK_LIGHT >= 0
     gpio_set_level(EXAMPLE_PIN_NUM_BK_LIGHT, EXAMPLE_LCD_BK_LIGHT_ON_LEVEL);
 #endif
 
-    /* RGB activity LEDs (R=GPIO17, G=GPIO7, B=GPIO0). LEDC PWM with 15% duty
-     * cap; safe before LVGL. Boot-time channel sweep so a flash quickly proves
-     * all three colors light independently. */
     hw_rgb_init();
     hw_rgb_pulse(255,   0,   0, 300); vTaskDelay(pdMS_TO_TICKS(350));
     hw_rgb_pulse(  0, 255,   0, 300); vTaskDelay(pdMS_TO_TICKS(350));
     hw_rgb_pulse(  0,   0, 255, 300); vTaskDelay(pdMS_TO_TICKS(350));
     hw_rgb_off();
 
-    /* Battery ADC on IO4 (BAT_ADC, divider 1/3). Spawns a 250 ms sampling
-     * task; status_bar widget reads the latest filtered mV / SoC %. */
     hw_bat_init();
 
-    /* microSD on SPI3 -- mounted before LVGL so any module can use POSIX FS. */
     example_mount_sdcard();
 
     hw_ir_init();
@@ -430,9 +454,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
-    /* PSRAM pool for widget trees / transient compositor layers. add_pool
-     * silently returns NULL if size > LV_MEM_SIZE + LV_MEM_POOL_EXPAND_SIZE
-     * (sdkconfig: LV_MEM_POOL_EXPAND_SIZE_KILOBYTES=4096). */
+    /* lv_mem_add_pool returns NULL if pool > LV_MEM_POOL_EXPAND_SIZE_KILOBYTES (sdkconfig=4096). */
     void *psram_pool = heap_caps_malloc(EXAMPLE_LVGL_PSRAM_POOL_BYTES, MALLOC_CAP_SPIRAM);
     assert(psram_pool);
     if (lv_mem_add_pool(psram_pool, EXAMPLE_LVGL_PSRAM_POOL_BYTES) == NULL) {
@@ -440,8 +462,7 @@ void app_main(void)
         abort();
     }
 
-    /* Internal SRAM (DMA-capable) draw buffers. PSRAM-sourced QSPI DMA at
-     * 40 MHz underflows under CPU I-fetch contention. */
+    /* DMA-capable SRAM only: PSRAM-sourced QSPI DMA underflows at 40 MHz. */
     void *buf1 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
     assert(buf1);
     void *buf2 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
@@ -483,22 +504,11 @@ void app_main(void)
         example_lvgl_unlock();
     }
 
-    /* Sleep policy engine -- runs after the panel + LVGL are alive so
-     * it has a display handle to query for inactivity and the tick
-     * timer to pause across light-sleep cycles. */
-    hw_sleep_init(lvgl_disp, lvgl_tick_timer);
+    hw_sleep_init(lvgl_disp);
 
-    /* Apply persisted sleep policy: load thresholds + low-battery
-     * preference, push them into hw_sleep. The applier re-runs on
-     * every battery sample (see sleep_apply_tick below) so a SoC drop
-     * or charger plug-in dynamically retunes thresholds. */
     sleep_settings_load();
     sleep_settings_apply();
 
-    /* Wire subject_battery to the hw_bat driver so the watchface +
-     * settings glyphs show real SoC. Re-apply sleep settings each
-     * minute so charging detection and low-battery override take
-     * effect without user input. */
     if (example_lvgl_lock(-1)) {
         lv_timer_create(battery_publish_tick, 5000, NULL);
         lv_timer_create(sleep_reapply_tick,  60000, NULL);

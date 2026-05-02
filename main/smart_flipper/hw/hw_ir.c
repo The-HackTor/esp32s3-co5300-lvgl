@@ -18,26 +18,22 @@ static const char *TAG = "hw_ir";
 
 #define IR_TX_GPIO          16
 #define IR_RX_GPIO          17
-#define IR_RMT_RESOLUTION   1000000U   /* 1 us per tick -- timings are direct microseconds */
+#define IR_RMT_RESOLUTION   1000000U   /* 1 us/tick so timings are direct us */
 #define IR_TX_MEM_SYMBOLS   64
-#define IR_RX_MEM_SYMBOLS   128        /* non-DMA on S3 supports up to a few hundred */
+#define IR_RX_MEM_SYMBOLS   128
 #define IR_TX_QUEUE_DEPTH   4
-/* 0.33 = Flipper-equivalent + IR-industry-standard. 3 parallel LEDs already
- * give us ~3x Flipper's optical advantage at this duty; bumping to 0.50 risks
- * TV AGC mismatch (some receivers expect 30-40% duty). */
+/* 0.33 matches Flipper + IR industry; 0.50 risks TV AGC mismatch. */
 #define IR_CARRIER_DUTY     0.33f
 
-#define IR_MAX_TIMINGS      1024       /* one signal -- NEC ~67, AC frames ~600 */
-#define IR_RX_MAX_SYMBOLS   512        /* one captured frame, 1024 alternating edges */
+#define IR_MAX_TIMINGS      1024       /* NEC ~67, AC frames ~600 */
+#define IR_RX_MAX_SYMBOLS   512
 
-/* End-of-frame: 50 ms of no edge ends the capture. Plenty above the longest
- * inter-frame gap of any AC remote (~20 ms). */
+/* End-of-frame: longest AC inter-frame gap is ~20 ms. */
 #define IR_RX_TIMEOUT_NS    50000000ULL
-/* RMT glitch filter -- sub-microsecond floor. IDF v6.1 caps this at the
- * RMT source clock period (~3200 ns on this chip), so it cannot serve as a
- * "noise floor"; the TSOP14438 itself rejects sub-100us edges upstream. */
+/* IDF v6.1 caps signal_range_min at the RMT source clock period (~3200 ns
+ * on this chip), so this is not a real noise floor; TSOP14438 rejects
+ * sub-100us edges upstream. */
 #define IR_RX_MIN_NS        1000ULL
-/* Cap individual phase length at 30 ms; longer gaps end the frame. */
 #define IR_RX_MAX_NS        30000000ULL
 
 static rmt_channel_handle_t  s_tx_chan;
@@ -51,8 +47,6 @@ static volatile bool         s_log_next_send;
 
 void hw_ir_log_next_send(void) { s_log_next_send = true; }
 
-/* ---- Async TX engine state (worker, queue, cancel) ---- */
-
 #define HW_IR_TX_QUEUE_DEPTH    8
 #define HW_IR_TX_WORKER_STACK   4096
 #define HW_IR_TX_WORKER_PRIO    (tskIDLE_PRIORITY + 4)
@@ -61,7 +55,7 @@ void hw_ir_log_next_send(void) { s_log_next_send = true; }
 
 typedef struct {
     uint32_t            id;
-    uint16_t           *timings;       /* heap-owned copy */
+    uint16_t           *timings;       /* heap-owned */
     size_t              n_timings;
     uint32_t            carrier_hz;
     uint8_t             repeat;
@@ -71,12 +65,12 @@ typedef struct {
 } tx_cmd_t;
 
 static QueueHandle_t   s_tx_cmd_queue;
-static SemaphoreHandle_t s_tx_idle_sem;       /* given when worker drops to empty queue */
+static SemaphoreHandle_t s_tx_idle_sem;
 static TaskHandle_t    s_tx_worker;
 static volatile uint32_t s_tx_next_id = 1;
-static volatile uint32_t s_tx_cancel_id;       /* non-zero -> cancel that id */
+static volatile uint32_t s_tx_cancel_id;
 static volatile bool   s_tx_cancel_all;
-static volatile uint32_t s_tx_current_id;       /* 0 when worker is idle */
+static volatile uint32_t s_tx_current_id;
 static portMUX_TYPE    s_tx_id_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void tx_cmd_free(tx_cmd_t *c)
@@ -90,11 +84,9 @@ static void tx_cmd_finish(tx_cmd_t *c, HwIrTxResult result)
     tx_cmd_free(c);
 }
 
-/* Pure check: must NOT mutate s_tx_cancel_id. The cancel id has to remain
- * armed for the lifetime of the burst -- if we cleared it on the first
- * positive check inside the gap-poll, a follow-up check after the poll
- * (or on the next for-iteration) would read 0 and let the worker keep
- * firing past the requested cancel point. */
+/* MUST NOT clear s_tx_cancel_id -- cancel must remain armed for the whole
+ * burst, otherwise a re-check after the gap-poll would let the worker
+ * keep firing past the cancel point. */
 static bool worker_should_cancel(uint32_t id)
 {
     if(s_tx_cancel_all) return true;
@@ -133,7 +125,7 @@ static void tx_worker_fn(void *arg)
                 esp_err_t err = hw_ir_send_raw(cmd.timings, cmd.n_timings, cmd.carrier_hz);
                 if(err != ESP_OK) { result = HW_IR_TX_ERROR; break; }
                 if(i + 1 < reps && cmd.gap_ms) {
-                    /* Poll cancel during the gap so cancellation is bounded. */
+                    /* Poll cancel during gap so cancellation is bounded. */
                     uint32_t left = cmd.gap_ms;
                     while(left > 0 && !worker_should_cancel(cmd.id)) {
                         uint32_t chunk = left > 20 ? 20 : left;
@@ -149,8 +141,7 @@ static void tx_worker_fn(void *arg)
         s_tx_current_id = 0;
         portEXIT_CRITICAL(&s_tx_id_lock);
 
-        /* Now that the burst is finished, consume any matching pending
-         * cancel id so a future submit reusing that id isn't auto-killed. */
+        /* Consume matching cancel id so a re-used id isn't auto-killed. */
         worker_consume_cancel_id(cmd.id);
 
         tx_cmd_finish(&cmd, result);
@@ -162,17 +153,26 @@ static void tx_worker_fn(void *arg)
     }
 }
 
+static atomic_int s_tx_engine_state;
+
 static void tx_engine_start_once(void)
 {
-    if(s_tx_cmd_queue) return;
-    s_tx_cmd_queue = xQueueCreate(HW_IR_TX_QUEUE_DEPTH, sizeof(tx_cmd_t));
-    s_tx_idle_sem  = xSemaphoreCreateBinary();
-    assert(s_tx_cmd_queue && s_tx_idle_sem);
-    BaseType_t ok = xTaskCreatePinnedToCore(tx_worker_fn, "hw_ir_tx",
-                                            HW_IR_TX_WORKER_STACK, NULL,
-                                            HW_IR_TX_WORKER_PRIO, &s_tx_worker,
-                                            HW_IR_TX_WORKER_CORE);
-    assert(ok == pdPASS);
+    int expected = 0;
+    if(atomic_compare_exchange_strong(&s_tx_engine_state, &expected, 1)) {
+        s_tx_cmd_queue = xQueueCreate(HW_IR_TX_QUEUE_DEPTH, sizeof(tx_cmd_t));
+        s_tx_idle_sem  = xSemaphoreCreateBinary();
+        assert(s_tx_cmd_queue && s_tx_idle_sem);
+        BaseType_t ok = xTaskCreatePinnedToCore(tx_worker_fn, "hw_ir_tx",
+                                                HW_IR_TX_WORKER_STACK, NULL,
+                                                HW_IR_TX_WORKER_PRIO, &s_tx_worker,
+                                                HW_IR_TX_WORKER_CORE);
+        assert(ok == pdPASS);
+        atomic_store(&s_tx_engine_state, 2);
+        return;
+    }
+    while(atomic_load(&s_tx_engine_state) != 2) {
+        vTaskDelay(1);
+    }
 }
 
 uint32_t hw_ir_tx_submit(const HwIrTxRequest *req)
@@ -199,7 +199,7 @@ uint32_t hw_ir_tx_submit(const HwIrTxRequest *req)
     if(s_tx_next_id == 0) s_tx_next_id = 1;
     portEXIT_CRITICAL(&s_tx_id_lock);
 
-    /* Drop any stale idle ack before queuing -- caller can wait afterwards. */
+    /* Drop stale idle ack before queuing. */
     xSemaphoreTake(s_tx_idle_sem, 0);
 
     if(xQueueSend(s_tx_cmd_queue, &cmd, 0) != pdTRUE) {
@@ -222,14 +222,13 @@ void hw_ir_tx_cancel_all(uint32_t timeout_ms)
     if(!s_tx_cmd_queue) return;
     s_tx_cancel_all = true;
 
-    /* Drain queued (not-yet-running) commands and fire their on_done with
-     * CANCELLED so callers can balance their state. */
+    /* Fire on_done(CANCELLED) for queued-but-not-yet-running cmds so
+     * callers can balance their state. */
     tx_cmd_t cmd;
     while(xQueueReceive(s_tx_cmd_queue, &cmd, 0) == pdTRUE) {
         tx_cmd_finish(&cmd, HW_IR_TX_CANCELLED);
     }
 
-    /* Wait for the in-flight burst (if any) to finish at the next gap. */
     if(s_tx_idle_sem) {
         if(s_tx_current_id != 0) {
             xSemaphoreTake(s_tx_idle_sem,
@@ -239,9 +238,8 @@ void hw_ir_tx_cancel_all(uint32_t timeout_ms)
     s_tx_cancel_all = false;
 }
 
-/* RX state */
 static rmt_channel_handle_t  s_rx_chan;
-static rmt_symbol_word_t    *s_rx_buf;       /* IDF fills caller-provided buffer */
+static rmt_symbol_word_t    *s_rx_buf;
 static QueueHandle_t         s_rx_evt_queue;
 static TaskHandle_t          s_rx_task;
 static hw_ir_rx_cb_t         s_rx_user_cb;
@@ -259,13 +257,9 @@ typedef struct {
 
 static esp_err_t apply_carrier(uint32_t carrier_hz)
 {
-    /* No short-circuit: apply fresh on every TX. IDF v6.1's carrier registers
-     * can drift if the channel was paused/resumed mid-burst, and forcing a
-     * re-apply costs only a couple of register writes inside a spinlock.
-     *
-     * carrier_hz==0 disables the modulator. IDF's rmt_apply_carrier asserts
-     * high_ticks/low_ticks >= 1, so we can't pass duty=0 -- the canonical
-     * "carrier off" idiom is rmt_apply_carrier(NULL). */
+    /* Apply fresh every TX -- IDF v6.1 carrier regs drift after pause/resume.
+     * carrier_hz==0 -> rmt_apply_carrier(NULL); rmt_apply_carrier asserts
+     * high_ticks/low_ticks >= 1 so duty=0 isn't an option. */
     if(carrier_hz == 0) {
         esp_err_t err = rmt_apply_carrier(s_tx_chan, NULL);
         if(err != ESP_OK) {
@@ -292,82 +286,82 @@ static esp_err_t apply_carrier(uint32_t carrier_hz)
 
 static esp_err_t build_tx_channel(bool invert)
 {
+    (void)invert;
     const rmt_tx_channel_config_t tx_cfg = {
         .gpio_num          = IR_TX_GPIO,
         .clk_src           = RMT_CLK_SRC_DEFAULT,
         .resolution_hz     = IR_RMT_RESOLUTION,
         .mem_block_symbols = IR_TX_MEM_SYMBOLS,
         .trans_queue_depth = IR_TX_QUEUE_DEPTH,
-        .flags.invert_out  = invert,
+        .flags.invert_out  = false,
         .flags.with_dma    = false,
     };
     esp_err_t err = rmt_new_tx_channel(&tx_cfg, &s_tx_chan);
     if(err != ESP_OK) return err;
-    /* Crisper gate transitions at 38 kHz on the DMN2058UW (Cgs ~30pF
-     * driven through 150R). Default cap is ~20mA; CAP_3 ~40mA halves
-     * the rise/fall constant and improves carrier square-wave fidelity
-     * at the LED. */
     gpio_set_drive_capability(IR_TX_GPIO, GPIO_DRIVE_CAP_3);
     return ESP_OK;
 }
 
 esp_err_t hw_ir_set_invert(bool invert)
 {
-    if(!s_inited) {
-        s_tx_invert_active = invert;
-        return ESP_OK;
-    }
-    if(invert == s_tx_invert_active) return ESP_OK;
-
-    if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, portMAX_DELAY);
-
-    esp_err_t err = rmt_disable(s_tx_chan);
-    if(err != ESP_OK) goto out;
-    err = rmt_del_channel(s_tx_chan);
-    if(err != ESP_OK) { s_tx_chan = NULL; goto out; }
-    s_tx_chan = NULL;
-
-    err = build_tx_channel(invert);
-    if(err != ESP_OK) goto out;
-
-    /* Carrier registers are reset on channel destroy; force a fresh apply. */
-    s_carrier_hz_active = 0;
-    err = apply_carrier(38000);
-    if(err != ESP_OK) goto out;
-    err = rmt_enable(s_tx_chan);
-    if(err != ESP_OK) goto out;
-
-    s_tx_invert_active = invert;
-    ESP_LOGI(TAG, "TX invert -> %d", (int)invert);
-
-out:
-    if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
-    return err;
+    (void)invert;
+    return ESP_OK;
 }
 
 void hw_ir_init(void)
 {
     if(s_inited) return;
 
+    gpio_hold_dis(IR_TX_GPIO);
     ESP_ERROR_CHECK(build_tx_channel(s_tx_invert_active));
 
-    /* Copy encoder: feeds caller-provided rmt_symbol_word_t array straight
-     * to the channel's TX hardware. The carrier is applied by the channel
-     * (hardware-modulated), so symbols carry plain mark/space durations.
-     * IDF v6.1 made rmt_copy_encoder_config_t an empty struct -- {0} triggers
+    /* IDF v6.1 made rmt_copy_encoder_config_t empty; {0} fires
      * -Werror=excess-initializers, so use the empty-aggregate form. */
     const rmt_copy_encoder_config_t enc_cfg = {};
     ESP_ERROR_CHECK(rmt_new_copy_encoder(&enc_cfg, &s_copy_encoder));
 
-    ESP_ERROR_CHECK(apply_carrier(38000));
+    /* Carrier OFF at init: IDF v6.x leaks the modulator to the pin between
+     * rmt_enable and the first transmit, lighting the IR LED visibly on a
+     * phone camera. apply_carrier() runs again per send. */
+    ESP_ERROR_CHECK(apply_carrier(0));
     ESP_ERROR_CHECK(rmt_enable(s_tx_chan));
 
     s_tx_mtx = xSemaphoreCreateMutex();
     assert(s_tx_mtx);
 
     s_inited = true;
-    ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, default carrier=38 kHz",
+    ESP_LOGI(TAG, "init: TX=GPIO%d, %u Hz tick, carrier disabled until first send",
              IR_TX_GPIO, (unsigned)IR_RMT_RESOLUTION);
+}
+
+void hw_ir_quiesce_for_deep_sleep(void)
+{
+    if(s_tx_mtx) xSemaphoreTake(s_tx_mtx, pdMS_TO_TICKS(200));
+
+    if(s_tx_chan) {
+        apply_carrier(0);
+        rmt_disable(s_tx_chan);
+        rmt_del_channel(s_tx_chan);
+        s_tx_chan = NULL;
+    }
+    if(s_copy_encoder) {
+        rmt_del_encoder(s_copy_encoder);
+        s_copy_encoder = NULL;
+    }
+    s_inited = false;
+
+    gpio_config_t cfg = {
+        .mode         = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = 1ULL << IR_TX_GPIO,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+    gpio_set_level(IR_TX_GPIO, 0);
+    gpio_hold_en(IR_TX_GPIO);
+
+    if(s_tx_mtx) xSemaphoreGive(s_tx_mtx);
 }
 
 esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t carrier_hz)
@@ -399,12 +393,10 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
         return err;
     }
 
-    /* Pack pairs of (mark, space) durations into rmt_symbol_word_t. Each
-     * symbol holds two phases (level0+duration0, level1+duration1). For an
-     * odd-count buffer (final mark with no trailing space) we pad with a
-     * 0-duration LOW phase so RMT terminates cleanly. The symbol buffer is
-     * static (2 KB) -- s_tx_mtx serializes callers, and a stack-resident
-     * version overflowed runner_task's 4 KB stack on heavy frames. */
+    /* Static symbol buffer (2 KB). s_tx_mtx serializes callers; the
+     * stack version overflowed runner_task's 4 KB stack on heavy frames.
+     * Odd-count buffers (final mark, no trailing space) are padded with a
+     * 0-duration LOW phase so RMT terminates cleanly. */
     const size_t n_symbols = (n_timings + 1) / 2;
     static rmt_symbol_word_t symbols[(IR_MAX_TIMINGS + 1) / 2];
 
@@ -412,23 +404,23 @@ esp_err_t hw_ir_send_raw(const uint16_t *timings, size_t n_timings, uint32_t car
         const size_t i0 = i * 2;
         const size_t i1 = i0 + 1;
         uint16_t d0 = timings[i0];
-        if(d0 > 32767) d0 = 32767;           /* RMT duration field is 15 bits */
-        symbols[i].level0    = 1;            /* mark = LED on (carrier modulated) */
+        if(d0 > 32767) d0 = 32767;           /* RMT duration is 15 bits */
+        symbols[i].level0    = 1;
         symbols[i].duration0 = d0;
         if(i1 < n_timings) {
             uint16_t d1 = timings[i1];
             if(d1 > 32767) d1 = 32767;
-            symbols[i].level1    = 0;        /* space = LED off */
+            symbols[i].level1    = 0;
             symbols[i].duration1 = d1;
         } else {
             symbols[i].level1    = 0;
-            symbols[i].duration1 = 0;        /* terminator */
+            symbols[i].duration1 = 0;
         }
     }
 
     const rmt_transmit_config_t tx_cfg = {
         .loop_count = 0,
-        .flags.eot_level = 0,                /* idle LOW after burst */
+        .flags.eot_level = 0,
     };
 
     err = rmt_transmit(s_tx_chan, s_copy_encoder, symbols,
@@ -450,15 +442,15 @@ bool hw_ir_tx_was_recent_us(int64_t window_us)
     return (esp_timer_get_time() - s_last_tx_done_us) < window_us;
 }
 
-/* ---- Hold-to-repeat TX ---- */
-
 typedef struct {
     uint16_t *timings;
     size_t    n;
-    uint16_t *repeat;        /* may be NULL -- worker re-fires `timings` */
+    uint16_t *repeat;        /* NULL -> worker re-fires `timings` */
     size_t    repeat_n;
     uint32_t  freq_hz;
     uint32_t  period_ms;
+    uint32_t  min_repeats;   /* total frame floor incl. initial */
+    uint32_t  sent;          /* counts initial + worker repeats */
 } repeat_args_t;
 
 static TaskHandle_t       s_repeat_task;
@@ -470,10 +462,11 @@ static void repeat_task_fn(void *arg)
     repeat_args_t *a = arg;
     const uint16_t *hold_t = a->repeat   ? a->repeat   : a->timings;
     size_t          hold_n = a->repeat_n ? a->repeat_n : a->n;
-    while(s_repeat_running) {
+    while(s_repeat_running || a->sent < a->min_repeats) {
         vTaskDelay(pdMS_TO_TICKS(a->period_ms));
-        if(!s_repeat_running) break;
+        if(!s_repeat_running && a->sent >= a->min_repeats) break;
         hw_ir_send_raw(hold_t, hold_n, a->freq_hz);
+        a->sent++;
     }
     free(a->timings);
     if(a->repeat) free(a->repeat);
@@ -485,20 +478,19 @@ static void repeat_task_fn(void *arg)
 
 esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
                                   const uint16_t *repeat_timings, size_t repeat_n_timings,
-                                  uint32_t carrier_hz, uint32_t period_ms)
+                                  uint32_t carrier_hz, uint32_t period_ms,
+                                  uint32_t min_repeats)
 {
     if(!s_inited)                         return ESP_ERR_INVALID_STATE;
     if(timings == NULL || n_timings == 0) return ESP_ERR_INVALID_ARG;
 
     if(!s_repeat_done_sem) s_repeat_done_sem = xSemaphoreCreateBinary();
 
-    /* Defensively drain any prior repeat-task before starting a new one.
-     * Handles the case where a previous _stop timed out or was missed. */
+    /* Defensive drain: prior _stop may have timed out. */
     if(s_repeat_task != NULL || s_repeat_running) {
         s_repeat_running = false;
         xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(2000));
     }
-    /* Drop any stale give from a prior cycle so our wait isn't skipped. */
     xSemaphoreTake(s_repeat_done_sem, 0);
 
     repeat_args_t *a = calloc(1, sizeof(repeat_args_t));
@@ -513,8 +505,10 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
         memcpy(a->repeat, repeat_timings, repeat_n_timings * sizeof(uint16_t));
         a->repeat_n = repeat_n_timings;
     }
-    a->freq_hz   = carrier_hz ? carrier_hz : 38000;
-    a->period_ms = period_ms ? period_ms : 110;
+    a->freq_hz     = carrier_hz ? carrier_hz : 38000;
+    a->period_ms   = period_ms ? period_ms : 110;
+    a->min_repeats = min_repeats;
+    a->sent        = 0;
 
     esp_err_t err = hw_ir_send_raw(a->timings, n_timings, a->freq_hz);
     if(err != ESP_OK) {
@@ -523,6 +517,7 @@ esp_err_t hw_ir_send_repeat_start(const uint16_t *timings, size_t n_timings,
         free(a);
         return err;
     }
+    a->sent = 1;
 
     s_repeat_running = true;
     if(xTaskCreatePinnedToCore(repeat_task_fn, "hw_ir_rep", 3072, a,
@@ -544,8 +539,6 @@ void hw_ir_send_repeat_stop(void)
         xSemaphoreTake(s_repeat_done_sem, pdMS_TO_TICKS(2000));
     }
 }
-
-/* ---- RX ---- */
 
 static IRAM_ATTR bool rx_done_isr(rmt_channel_handle_t channel,
                                   const rmt_rx_done_event_data_t *edata,
@@ -594,8 +587,8 @@ static void rx_task(void *arg)
             for(size_t i = 0; i < evt.count; i++) {
                 const rmt_symbol_word_t s = evt.symbols[i];
                 if(s.duration0 == 0) break;
-                /* TSOP14438 idles HIGH; level=0 = IR present = mark.
-                 * Pass MARK semantics to caller. */
+                /* TSOP14438 idles HIGH -> level==0 means IR mark; invert
+                 * here so callers always see mark-first semantics. */
                 s_rx_edge_cb(s.level0 == 0, s.duration0, false, s_rx_edge_ctx);
                 edges++;
                 if(s.duration1 == 0) break;

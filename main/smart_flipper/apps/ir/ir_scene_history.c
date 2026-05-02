@@ -100,7 +100,6 @@ static void rebuild_groups(void)
         }
     }
 
-    /* Sort groups by last_us descending (newest first). */
     for(size_t i = 1; i < s_group_count; i++) {
         for(size_t j = i; j > 0 && s_groups[j-1].last_us < s_groups[j].last_us; j--) {
             HistoryGroup tmp = s_groups[j-1];
@@ -250,7 +249,6 @@ static void render_list(IrApp *app)
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, "History", COLOR_GREEN);
 
-    /* Filter pseudo-row at the top — tap to cycle. */
     char filter_label_buf[32];
     snprintf(filter_label_buf, sizeof(filter_label_buf), "Filter:  %s",
              filter_label(s_filter));

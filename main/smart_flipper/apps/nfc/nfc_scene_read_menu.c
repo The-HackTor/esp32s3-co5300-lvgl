@@ -2,11 +2,6 @@
 #include "nfc_scenes.h"
 #include "ui/styles.h"
 
-/*
- * Read Menu -- contextual menu shown AFTER a card has been read.
- * Like Flipper Zero: Save, Emulate, Info
- */
-
 enum { IDX_SAVE, IDX_EMULATE, IDX_ATTACK, IDX_INFO };
 
 static void submenu_cb(void *context, uint32_t index) {

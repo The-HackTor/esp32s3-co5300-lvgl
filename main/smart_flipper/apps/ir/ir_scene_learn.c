@@ -60,12 +60,8 @@ void ir_scene_learn_on_enter(void *ctx)
 {
     IrApp *app = ctx;
 
-    /* Clear ALL stale capture state from any previous Learn session: the
-     * pending button, the parsed-decode flag, the duplicated raw timings,
-     * and the live-scope preview buffer. Otherwise the scope re-shows the
-     * last captured waveform until a new one arrives, and a stale
-     * last_decoded could leak into LearnSuccess if the user hits Send
-     * before any new frame is captured. */
+    /* Stale state from a previous Learn session leaks into LearnSuccess
+     * if Send fires before a fresh capture; clear everything. */
     if(app->pending_valid) {
         ir_button_free(&app->pending_button);
         app->pending_valid = false;
@@ -79,8 +75,7 @@ void ir_scene_learn_on_enter(void *ctx)
     }
     app->pending_raw_n = 0;
     app->preview_n = 0;
-    /* Bump preview_seq so the scope-redraw timer's first tick paints the
-     * empty buffer and clears whatever was rendered last session. */
+    /* Bump seq so the redraw timer's first tick clears last session's bars. */
     app->preview_seq++;
 
     lv_obj_t *view = view_custom_get_view(app->custom);
@@ -120,12 +115,9 @@ void ir_scene_learn_on_enter(void *ctx)
 
     app->learn_redraw_timer = lv_timer_create(learn_redraw_cb, 100, app);
 
-    /* RX is OWNED by Learn scene -- mirrors Flipper's per-scene worker
-     * lifecycle. App boots with RX paused (initial pause in app on_init);
-     * Learn enables here and disables on exit so LearnSuccess / EnterName /
-     * Done never get spurious RX events that would race with the scene
-     * transition or keep mutating app.pending_button while the success
-     * view is rendering. */
+    /* RX is owned by Learn (Flipper per-scene worker lifecycle). Without
+     * this, RX events race scene transitions and mutate app.pending_button
+     * while LearnSuccess is rendering. */
     ir_app_rx_resume();
 
     view_dispatcher_switch_to_view(app->view_dispatcher, IrViewCustom);
@@ -159,9 +151,8 @@ void ir_scene_learn_on_exit(void *ctx)
     hw_sleep_inhibit(false);
     hw_rgb_off();
 
-    /* Stop RX BEFORE tearing down the view: prevents rx_drain_timer_cb from
-     * firing IR_EVT_RX_DECODED into the next scene mid-transition and from
-     * mutating app.pending_button while LearnSuccess is still rendering. */
+    /* Pause BEFORE view teardown: rx_drain_timer_cb otherwise fires
+     * IR_EVT_RX_DECODED into the next scene mid-transition. */
     ir_app_rx_pause();
 
     if(app->learn_redraw_timer) {

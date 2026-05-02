@@ -2,6 +2,7 @@
 #include "subghz_scenes.h"
 #include "ui/styles.h"
 #include "ui/widgets/status_bar.h"
+#include <stdio.h>
 #include <string.h>
 
 static lv_obj_t *list_cont;
@@ -42,7 +43,8 @@ static void card_click_cb(lv_event_t *e)
     if(idx < 0 || idx >= count) return;
 
     const SubghzHistoryEntry *entry = &history[idx];
-    app->last_decoded.protocol = entry->protocol;
+    snprintf(app->protocol_buf, sizeof(app->protocol_buf), "%s", entry->protocol);
+    app->last_decoded.protocol = app->protocol_buf;
     app->last_decoded.data = entry->data;
     app->last_decoded.bits = entry->bits;
     app->last_decoded.te = entry->te;

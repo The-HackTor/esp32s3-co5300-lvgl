@@ -27,7 +27,6 @@ typedef struct {
     ViewDispatcher *view_dispatcher;
     SceneManager    scene_mgr;
 
-    /* Pre-allocated view modules */
     ViewSubmenu    *submenu;
     ViewAction     *action;
     ViewInfo       *info;
@@ -35,7 +34,6 @@ typedef struct {
     ViewPopup      *popup;
     ViewCustom     *custom;
 
-    /* App state */
     enum nfc_card_type card_type;
     struct mfc_dump      dump;
     struct mfu_dump      mfu_dump;
@@ -45,19 +43,17 @@ typedef struct {
     struct mfkey_nonce     nonces[MFKEY_MAX_NONCES];
     uint8_t         nonce_count;
 
-    /* MFKey: nonce pair tracking for key extraction */
     #define MFKEY_MAX_PAIRS 10
     struct {
         uint8_t  sector;
-        uint8_t  key_type;    /* 0=A, 1=B */
+        uint8_t  key_type;
         bool     complete;
         uint32_t nt0, nr0, ar0;
         uint32_t nt1, nr1, ar1;
     } nonce_pairs[MFKEY_MAX_PAIRS];
     uint8_t         nonce_pair_count;
-    struct mfc_dump      detect_dump;  /* fake card used for detection */
+    struct mfc_dump      detect_dump;
 
-    /* Recovered keys from mfkey32 or nested/hardnested attack */
     #define MAX_RECOVERED_KEYS 40
     struct {
         uint8_t  sector;
@@ -66,8 +62,8 @@ typedef struct {
     } recovered_keys[MAX_RECOVERED_KEYS];
     uint8_t         recovered_key_count;
 
-    /* Currently-attacked sector/key, set before nested/hardnested callback
-     * fires so the cb can record the recovery against the right target. */
+    /* Set by scene before invoking the async nested/hardnested callback so
+     * the cb attributes the recovered key to the correct target. */
     uint8_t         attack_target_sector;
     uint8_t         attack_target_key_type;
 } NfcApp;

@@ -9,13 +9,12 @@
 #include "lib/infrared/universal_db/ir_universal_index.h"
 #include "lib/infrared/encoder_decoder/infrared.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Format an N-bit value: 0x1F (5b) for short widths, 0xABCD (16b) for
- * wider, full 0x12345678 (32b) for the catch-all. Bits include the actual
- * mask width per Flipper's spec, so users see the meaningful digits not
- * the leading zeroes from a 32-bit container. */
 static void format_bits(char *out, size_t cap, uint32_t value, uint8_t bits)
 {
     if(bits == 0 || bits > 32) bits = 32;
@@ -49,19 +48,16 @@ static void btn_send(void *ctx)
     IrApp *app = ctx;
     if(!app->pending_valid) return;
 
-    /* Prefer the canonical encoded form when we have a parsed decode.
-     * pending_raw_timings is the verbatim TSOP capture: the first sample's
-     * mark/space identity depends on when the RMT RX channel armed relative
-     * to the incoming frame, and the carrier was hardcoded to 38 kHz
-     * regardless of what was actually captured. Encoding from the decoded
-     * (protocol, address, command) tuple produces a clean frame identical
-     * to what a real remote emits. */
     if(app->last_decoded_valid &&
        app->pending_button.signal.type == INFRARED_SIGNAL_PARSED) {
+        size_t cycles = ir_codecs_min_repeat_count(app->last_decoded.protocol);
+        if(cycles < 2) cycles = 2;
+
         uint16_t *enc_t = NULL;
         size_t    enc_n = 0;
         uint32_t  enc_hz = 38000;
-        esp_err_t err = ir_codecs_encode(&app->last_decoded, &enc_t, &enc_n, &enc_hz);
+        esp_err_t err = ir_codecs_encode_full(&app->last_decoded, cycles,
+                                              &enc_t, &enc_n, &enc_hz);
         if(err == ESP_OK) {
             hw_rgb_set(255, 0, 0);
             hw_ir_send_raw(enc_t, enc_n, enc_hz);
@@ -69,22 +65,20 @@ static void btn_send(void *ctx)
             free(enc_t);
             return;
         }
-        /* Encode failed (codec_db best-fit without a sender, etc.) -- fall
-         * through to raw replay so the user can still try the captured
-         * envelope. */
         if(enc_t) free(enc_t);
     }
 
-    /* Raw fallback. Use the actual captured carrier when available rather
-     * than always 38 kHz; the pending_button.signal.raw.freq_hz is the
-     * authoritative value rx_drain_timer_cb wrote when the frame arrived. */
     if(app->pending_button.signal.type == INFRARED_SIGNAL_RAW &&
        app->pending_button.signal.raw.timings &&
        app->pending_button.signal.raw.n_timings > 0) {
         const InfraredSignalRaw *r = &app->pending_button.signal.raw;
+        uint32_t hz = r->freq_hz ? r->freq_hz : 38000;
         hw_rgb_set(255, 0, 0);
-        hw_ir_send_raw(r->timings, r->n_timings,
-                       r->freq_hz ? r->freq_hz : 38000);
+        hw_ir_send_raw(r->timings, r->n_timings, hz);
+        vTaskDelay(pdMS_TO_TICKS(40));
+        hw_ir_send_raw(r->timings, r->n_timings, hz);
+        vTaskDelay(pdMS_TO_TICKS(40));
+        hw_ir_send_raw(r->timings, r->n_timings, hz);
         hw_rgb_off();
         return;
     }
@@ -93,6 +87,10 @@ static void btn_send(void *ctx)
         uint32_t hz = app->pending_button.signal.raw.freq_hz
                           ? app->pending_button.signal.raw.freq_hz : 38000;
         hw_rgb_set(255, 0, 0);
+        hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, hz);
+        vTaskDelay(pdMS_TO_TICKS(40));
+        hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, hz);
+        vTaskDelay(pdMS_TO_TICKS(40));
         hw_ir_send_raw(app->pending_raw_timings, app->pending_raw_n, hz);
         hw_rgb_off();
         return;

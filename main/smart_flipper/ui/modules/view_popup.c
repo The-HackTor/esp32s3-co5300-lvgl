@@ -20,7 +20,6 @@ static void timer_cb(lv_timer_t *t)
     if(popup->timeout_cb) popup->timeout_cb(popup->timeout_ctx);
 }
 
-/* --- ViewModule vtable --- */
 static lv_obj_t *popup_get_view(void *m) { return ((ViewPopup *)m)->root; }
 
 static void popup_reset(void *m)
@@ -61,20 +60,17 @@ ViewPopup *view_popup_alloc(lv_obj_t *parent)
     lv_obj_set_style_pad_all(p->root, 0, 0);
     lv_obj_remove_flag(p->root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Icon */
     p->icon_lbl = lv_label_create(p->root);
     lv_label_set_text(p->icon_lbl, "");
     lv_obj_set_style_text_font(p->icon_lbl, FONT_TIME, 0);
     lv_obj_align(p->icon_lbl, LV_ALIGN_CENTER, 0, -60);
 
-    /* Header */
     p->header_lbl = lv_label_create(p->root);
     lv_label_set_text(p->header_lbl, "");
     lv_obj_set_style_text_font(p->header_lbl, FONT_TITLE, 0);
     lv_obj_set_style_text_color(p->header_lbl, COLOR_PRIMARY, 0);
     lv_obj_align(p->header_lbl, LV_ALIGN_CENTER, 0, 10);
 
-    /* Text */
     p->text_lbl = lv_label_create(p->root);
     lv_label_set_text(p->text_lbl, "");
     lv_obj_set_style_text_font(p->text_lbl, FONT_BODY, 0);

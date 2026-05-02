@@ -39,6 +39,7 @@ typedef struct {
     SimSubghzRaw     raw;
     bool             raw_valid;
     SimSubghzDecoded last_decoded;
+    char             protocol_buf[SUBGHZ_PROTOCOL_NAME_MAX];
     bool             decoded_valid;
     uint32_t         frequency;
     uint8_t          preset;

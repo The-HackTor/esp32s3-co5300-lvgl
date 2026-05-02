@@ -48,13 +48,6 @@ static void check_empty(void)
     }
 }
 
-static void dismiss_anim_done(lv_anim_t *a)
-{
-    lv_obj_t *card = a->var;
-    lv_obj_delete(card);
-    check_empty();
-}
-
 static void dismiss_x_cb(void *var, int32_t val)
 {
     lv_obj_set_style_translate_x((lv_obj_t *)var, val, 0);
@@ -63,6 +56,14 @@ static void dismiss_x_cb(void *var, int32_t val)
 static void dismiss_opa_cb(void *var, int32_t val)
 {
     lv_obj_set_style_opa((lv_obj_t *)var, val, 0);
+}
+
+static void dismiss_anim_done(lv_anim_t *a)
+{
+    lv_obj_t *card = a->var;
+    lv_anim_delete(card, dismiss_opa_cb);
+    lv_obj_delete(card);
+    check_empty();
 }
 
 static void card_gesture(lv_event_t *e)
@@ -144,13 +145,13 @@ static void on_init(void)
             lv_obj_t *hdr = lv_label_create(card);
             lv_label_set_text_fmt(hdr, "%s  %s", icon_for_id(n->icon_id), n->title);
             lv_obj_set_style_text_color(hdr, COLOR_BLUE, 0);
-            lv_obj_set_style_text_font(hdr, FONT_MENU, 0);   /* 24 px -- was FONT_MEDIUM */
+            lv_obj_set_style_text_font(hdr, FONT_MENU, 0);
             lv_obj_align(hdr, LV_ALIGN_TOP_LEFT, 0, 0);
 
             lv_obj_t *body = lv_label_create(card);
             lv_label_set_text(body, n->body);
             lv_obj_set_style_text_color(body, COLOR_SECONDARY, 0);
-            lv_obj_set_style_text_font(body, FONT_BODY, 0);  /* 18 px -- was FONT_SMALL */
+            lv_obj_set_style_text_font(body, FONT_BODY, 0);
             lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(body, lv_pct(100));
             lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, 32);
@@ -159,7 +160,7 @@ static void on_init(void)
 }
 
 static void on_enter(void) { lv_screen_load(screen); }
-static void on_leave(void) { /* nothing to stop */ }
+static void on_leave(void) {}
 static lv_obj_t *get_screen(void) { return screen; }
 
 void scr_notifications_register(void)

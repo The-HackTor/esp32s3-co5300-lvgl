@@ -72,7 +72,6 @@ static void item_released(lv_event_t *e)
     if(ctx && ctx->on_release) ctx->on_release(ctx->ctx, ctx->index);
 }
 
-/* --- ViewModule vtable --- */
 static lv_obj_t *submenu_get_view(void *module)
 {
     return ((ViewSubmenu *)module)->root;
@@ -110,7 +109,6 @@ ViewSubmenu *view_submenu_alloc(lv_obj_t *parent)
 {
     ViewSubmenu *sm = calloc(1, sizeof(ViewSubmenu));
 
-    /* Root container -- child of app screen, hidden by default */
     sm->root = lv_obj_create(parent);
     lv_obj_add_flag(sm->root, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(sm->root, DISP_W, DISP_H);
@@ -120,7 +118,6 @@ ViewSubmenu *view_submenu_alloc(lv_obj_t *parent)
     lv_obj_set_style_pad_all(sm->root, 0, 0);
     lv_obj_remove_flag(sm->root, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header bar */
     sm->header_bar = lv_obj_create(sm->root);
     lv_obj_set_size(sm->header_bar, DISP_W, 80);
     lv_obj_align(sm->header_bar, LV_ALIGN_TOP_MID, 0, 0);
@@ -137,7 +134,6 @@ ViewSubmenu *view_submenu_alloc(lv_obj_t *parent)
     lv_obj_set_style_text_color(sm->title_lbl, COLOR_PRIMARY, 0);
     lv_obj_align(sm->title_lbl, LV_ALIGN_TOP_MID, 0, 28);
 
-    /* Scrollable item list */
     sm->list = lv_obj_create(sm->root);
     lv_obj_set_size(sm->list, DISP_W, DISP_H - 80);
     lv_obj_align(sm->list, LV_ALIGN_TOP_MID, 0, 80);
@@ -292,8 +288,6 @@ void view_submenu_add_item_ex(ViewSubmenu *submenu,
 
     if(subtitle && subtitle[0] && btn) {
         lv_obj_set_height(btn, MENU_ITEM_HEIGHT + 24);
-        /* Existing label is centered vertically; pull it up and add a
-         * smaller subtitle below. */
         uint32_t cnt = lv_obj_get_child_count(btn);
         if(cnt >= 2) {
             lv_obj_t *main_lbl = lv_obj_get_child(btn, cnt - 1);

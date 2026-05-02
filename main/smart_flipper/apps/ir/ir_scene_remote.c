@@ -46,7 +46,7 @@ static void button_pressed(void *ctx, uint32_t index)
         const InfraredSignalRaw *r = &btn->signal.raw;
         hw_ir_send_repeat_start(r->timings, r->n_timings, NULL, 0,
                                 r->freq_hz ? r->freq_hz : 38000,
-                                IR_REPEAT_PERIOD_MS);
+                                IR_REPEAT_PERIOD_MS, 1);
         ir_recents_append(btn->name, "RAW", 0, 0);
         return;
     }
@@ -64,8 +64,10 @@ static void button_pressed(void *ctx, uint32_t index)
                                                  &enc_rep_t, &enc_rep_n,
                                                  &enc_hz);
     if(err == ESP_OK) {
+        size_t min_reps = ir_codecs_min_repeat_count(msg.protocol);
         hw_ir_send_repeat_start(enc_t, enc_n, enc_rep_t, enc_rep_n,
-                                enc_hz, IR_REPEAT_PERIOD_MS);
+                                enc_hz, IR_REPEAT_PERIOD_MS,
+                                (uint32_t)min_reps);
         free(enc_t);
         if(enc_rep_t) free(enc_rep_t);
         ir_recents_append(btn->name, msg.protocol, msg.address, msg.command);

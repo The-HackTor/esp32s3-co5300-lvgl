@@ -65,7 +65,7 @@ static lv_obj_t *create_forecast_day(lv_obj_t *parent, const char *day,
     lv_snprintf(buf, sizeof(buf), "%s/%s", hi, lo);
     lv_obj_t *t = lv_label_create(cont);
     lv_label_set_text(t, buf);
-    lv_obj_set_style_text_font(t, FONT_BODY, 0);      /* 18 px -- was FONT_MONO */
+    lv_obj_set_style_text_font(t, FONT_BODY, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(0xAAAAAA), 0);
     lv_obj_align(t, LV_ALIGN_BOTTOM_MID, 0, 0);
 
@@ -86,7 +86,6 @@ static void on_init(void)
 
     status_bar_create(screen, "Weather", COLOR_BLUE);
 
-    /* ---- prominent centred temperature ---- */
     lv_obj_t *t = lv_label_create(screen);
     lv_label_set_text_fmt(t, "%d\xc2\xb0" "C", temp);
     lv_obj_set_style_text_font(t, FONT_LARGE, 0);
@@ -99,7 +98,6 @@ static void on_init(void)
     lv_obj_set_style_text_color(cond, COLOR_SECONDARY, 0);
     lv_obj_align(cond, LV_ALIGN_CENTER, 0, -32);
 
-    /* ---- detail row: high / low / humidity ---- */
     lv_obj_t *details = lv_obj_create(screen);
     lv_obj_set_size(details, 390, 80);
     lv_obj_align(details, LV_ALIGN_CENTER, 0, 24);
@@ -120,7 +118,6 @@ static void on_init(void)
     create_detail(details, "LOW",   lo_buf,  COLOR_CYAN);
     create_detail(details, "HUMID", hum_buf, COLOR_BLUE);
 
-    /* ---- divider ---- */
     lv_obj_t *divider = lv_obj_create(screen);
     lv_obj_set_size(divider, 340, 1);
     lv_obj_align(divider, LV_ALIGN_CENTER, 0, 72);
@@ -129,7 +126,6 @@ static void on_init(void)
     lv_obj_set_style_border_width(divider, 0, 0);
     lv_obj_remove_flag(divider, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
 
-    /* ---- forecast row ---- */
     lv_obj_t *forecast = lv_obj_create(screen);
     lv_obj_set_size(forecast, 400, 100);
     lv_obj_align(forecast, LV_ALIGN_CENTER, 0, 130);
@@ -160,7 +156,7 @@ static void on_init(void)
 }
 
 static void on_enter(void) { lv_screen_load(screen); }
-static void on_leave(void) { /* nothing to stop */ }
+static void on_leave(void) {}
 static lv_obj_t *get_screen(void) { return screen; }
 
 void scr_weather_register(void)

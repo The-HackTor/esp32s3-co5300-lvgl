@@ -81,15 +81,9 @@ static void item_tapped(void *ctx, uint32_t index)
         hw_ir_set_invert(ir_settings()->tx_invert);
         break;
     case IDX_TX_TEST: {
-        /* Bench diagnostic: fire NEC(addr=0x04, cmd=0x08) ten times with
-         * 110ms gaps. Phone camera should show IR pulsing; Flipper Zero in
-         * Learn mode should decode it as "NEC 04 08". Isolates "no IR
-         * coming out" vs "IR present but TV ignores it".
-         *
-         * RX must be paused for the duration -- self-echo decode races the
-         * latent RC6 free-path heap corruption. The TX self-test here fires
-         * for ~2s; ir_app_rx_resume runs from a one-shot lv_timer 2500ms
-         * later. ir_app_rx_pause/_resume are refcounted so nesting is safe. */
+        /* RX must be off for the duration: self-echo decode races a latent
+         * RC6 free-path heap corruption. TX runs ~2s; one-shot lv_timer
+         * resumes at 2500ms. Pause/resume refcounted so nesting is safe. */
         ir_app_rx_pause();
 
         IrDecoded msg = { .source = IR_DECODED_FLIPPER, .address = 0x04, .command = 0x08 };

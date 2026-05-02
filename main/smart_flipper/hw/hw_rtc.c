@@ -34,8 +34,8 @@ static const char *TAG = "hw_rtc";
 
 #define CTRL2_AF             (1u << 3)
 #define CTRL2_AIE            (1u << 7)
-#define SEC_OS_FLAG          (1u << 7)         /* oscillator stopped flag */
-#define ALARM_DISABLE        (1u << 7)         /* set in alarm reg to disable */
+#define SEC_OS_FLAG          (1u << 7)         /* oscillator-stop, in REG_SECONDS */
+#define ALARM_DISABLE        (1u << 7)         /* AE_x mask, set per-alarm-reg to disable */
 
 static i2c_master_dev_handle_t s_dev;
 static bool                    s_inited;
@@ -50,8 +50,7 @@ static esp_err_t reg_read(uint8_t reg, uint8_t *buf, size_t n)
 
 static esp_err_t reg_write(uint8_t reg, const uint8_t *buf, size_t n)
 {
-    /* Compose [reg, payload...] into a stack buffer. PCF85063 supports
-     * auto-increment so a single transmit covers contiguous writes. */
+    /* PCF85063 has reg auto-increment; one transmit covers contiguous writes. */
     uint8_t tx[8];
     if(n + 1 > sizeof(tx)) return ESP_ERR_INVALID_SIZE;
     tx[0] = reg;
@@ -82,33 +81,29 @@ esp_err_t hw_rtc_init(void)
     esp_err_t err = i2c_master_bus_add_device(bus, &cfg, &s_dev);
     if(err != ESP_OK) { ESP_LOGE(TAG, "add_device: %s", esp_err_to_name(err)); return err; }
 
-    /* Probe: read Control_1, ensure STOP=0 and capacitor select = 7 pF (default). */
     uint8_t ctrl1 = 0;
     err = reg_read(REG_CONTROL_1, &ctrl1, 1);
     if(err != ESP_OK) {
         ESP_LOGE(TAG, "probe: %s", esp_err_to_name(err));
         return err;
     }
-    /* CAP_SEL=0 (7 pF), 12_24=0 (24 hour), STOP=0, RESET=0. */
+    /* CAP_SEL=0 (7pF), 12_24=0, STOP=0, RESET=0. */
     err = reg_write_byte(REG_CONTROL_1, 0x00);
     if(err != ESP_OK) return err;
 
-    /* Disable all alarms, clear flags. */
     uint8_t alarm_disable[5] = {
         ALARM_DISABLE, ALARM_DISABLE, ALARM_DISABLE,
         ALARM_DISABLE, ALARM_DISABLE,
     };
-    reg_write(REG_SECOND_ALARM, alarm_disable, 5);
-    reg_write_byte(REG_CONTROL_2, 0x00);
+    err = reg_write(REG_SECOND_ALARM, alarm_disable, 5);
+    if(err != ESP_OK) { ESP_LOGE(TAG, "alarm clear: %s", esp_err_to_name(err)); return err; }
+    err = reg_write_byte(REG_CONTROL_2, 0x00);
+    if(err != ESP_OK) { ESP_LOGE(TAG, "ctrl2 clear: %s", esp_err_to_name(err)); return err; }
 
     s_inited = true;
     ESP_LOGI(TAG, "init: PCF85063 @ 0x%02X on shared I2C0", PCF85063_ADDR);
 
-    /* If the RTC has retained a valid time across reset (oscillator
-     * stop flag clear), seed the system clock from it so gettimeofday /
-     * time(NULL) return wall-clock from boot. PCF85063ATL has no Vbat,
-     * so this only fires if we were warm-reset (deep-sleep wake, RST
-     * button) -- a fresh power-on always starts at uptime. */
+    /* No Vbat -- this only seeds across warm reset (deep-sleep wake / RST). */
     if(hw_rtc_is_valid()) {
         struct tm now;
         if(hw_rtc_get_time(&now) == ESP_OK) {
@@ -146,8 +141,8 @@ esp_err_t hw_rtc_get_time(struct tm *out)
     out->tm_hour = bcd_decode(buf[2] & 0x3F);
     out->tm_mday = bcd_decode(buf[3] & 0x3F);
     out->tm_wday = buf[4] & 0x07;
-    out->tm_mon  = bcd_decode(buf[5] & 0x1F) - 1;     /* tm_mon is 0..11 */
-    out->tm_year = bcd_decode(buf[6]) + 100;          /* PCF85063 is 00..99, offset 2000; tm is from 1900 */
+    out->tm_mon  = bcd_decode(buf[5] & 0x1F) - 1;     /* PCF=1..12, tm=0..11 */
+    out->tm_year = bcd_decode(buf[6]) + 100;          /* PCF=00..99 (=>2000+), tm=year-1900 */
     out->tm_isdst = -1;
     return ESP_OK;
 }
@@ -157,15 +152,14 @@ esp_err_t hw_rtc_set_time(const struct tm *in)
     if(!s_inited || !in) return ESP_ERR_INVALID_STATE;
 
     uint8_t buf[7];
-    /* Writing seconds with bit7 clear also clears the OS flag, so this
-     * single write both sets the time and marks the value valid. */
+    /* Writing seconds with bit7 (OS) clear also marks time valid in one shot. */
     buf[0] = bcd_encode(in->tm_sec  & 0x7F);
     buf[1] = bcd_encode(in->tm_min  & 0x7F);
     buf[2] = bcd_encode(in->tm_hour & 0x3F);
     buf[3] = bcd_encode(in->tm_mday & 0x3F);
     buf[4] = (uint8_t)(in->tm_wday & 0x07);
     buf[5] = bcd_encode((in->tm_mon + 1) & 0x1F);
-    int yy = in->tm_year - 100;                       /* tm_year is from 1900; PCF85063 wants 00..99 */
+    int yy = in->tm_year - 100;                       /* tm=year-1900, PCF wants 00..99 */
     if(yy < 0) yy = 0;
     if(yy > 99) yy = 99;
     buf[6] = bcd_encode((uint8_t)yy);
@@ -185,26 +179,25 @@ esp_err_t hw_rtc_set_alarm_in(uint32_t seconds)
     if(t == (time_t)-1) return ESP_FAIL;
     t += (time_t)seconds;
     struct tm fire;
-    if(!gmtime_r(&t, &fire)) return ESP_FAIL;
+    if(!localtime_r(&t, &fire)) return ESP_FAIL;
 
-    /* Match second + minute + hour + day; skip weekday. AE=0 enables. */
+    /* Match s+m+h+day, skip weekday. AE_x=0 enables. */
     uint8_t alarm[5];
     alarm[0] = bcd_encode(fire.tm_sec  & 0x7F);
     alarm[1] = bcd_encode(fire.tm_min  & 0x7F);
     alarm[2] = bcd_encode(fire.tm_hour & 0x3F);
     alarm[3] = bcd_encode(fire.tm_mday & 0x3F);
-    alarm[4] = ALARM_DISABLE;                         /* weekday alarm off */
+    alarm[4] = ALARM_DISABLE;
     err = reg_write(REG_SECOND_ALARM, alarm, sizeof(alarm));
     if(err != ESP_OK) return err;
 
-    /* Clear AF, enable AIE so RTC_INT goes LOW on match. */
     return reg_write_byte(REG_CONTROL_2, CTRL2_AIE);
 }
 
 esp_err_t hw_rtc_ack_alarm(void)
 {
     if(!s_inited) return ESP_ERR_INVALID_STATE;
-    /* Read-modify-write to preserve AIE. */
+    /* RMW preserves AIE. */
     uint8_t c2 = 0;
     esp_err_t err = reg_read(REG_CONTROL_2, &c2, 1);
     if(err != ESP_OK) return err;
@@ -219,8 +212,9 @@ esp_err_t hw_rtc_disable_alarm(void)
         ALARM_DISABLE, ALARM_DISABLE, ALARM_DISABLE,
         ALARM_DISABLE, ALARM_DISABLE,
     };
-    reg_write(REG_SECOND_ALARM, alarm_disable, 5);
-    return reg_write_byte(REG_CONTROL_2, 0x00);
+    esp_err_t err = reg_write(REG_SECOND_ALARM, alarm_disable, 5);
+    esp_err_t err2 = reg_write_byte(REG_CONTROL_2, 0x00);
+    return err != ESP_OK ? err : err2;
 }
 
 esp_err_t hw_rtc_enable_wake_pin(bool enable)
@@ -229,7 +223,7 @@ esp_err_t hw_rtc_enable_wake_pin(bool enable)
         const gpio_config_t cfg = {
             .pin_bit_mask = 1ULL << PCF85063_INT_GPIO,
             .mode         = GPIO_MODE_INPUT,
-            .pull_up_en   = GPIO_PULLUP_DISABLE,    /* external 10K pull-up via R2 */
+            .pull_up_en   = GPIO_PULLUP_DISABLE,    /* ext 10K pull-up on R2 */
             .pull_down_en = GPIO_PULLDOWN_DISABLE,
             .intr_type    = GPIO_INTR_NEGEDGE,
         };

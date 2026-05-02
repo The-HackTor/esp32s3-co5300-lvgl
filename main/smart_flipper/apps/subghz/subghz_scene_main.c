@@ -3,19 +3,6 @@
 #include "app/app_manager.h"
 #include "ui/styles.h"
 
-/*
- * SubGHz Main Menu -- Flipper Zero pattern:
- *   Read          → live signal receiver
- *   Read RAW      → raw capture
- *   Saved         → pick saved signal → contextual menu
- *   Freq Analyzer → frequency scanner
- *   Relay         → relay submenu
- *   Settings      → frequency/preset config
- *
- * "Replay", "Waveform", "Signal Detail" are NOT here --
- * they appear contextually after capture or from saved signals.
- */
-
 enum {
     IDX_READ,
     IDX_READ_RAW,

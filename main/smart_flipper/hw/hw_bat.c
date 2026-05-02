@@ -14,17 +14,13 @@ static const char *TAG = "hw_bat";
 
 #define BAT_ADC_UNIT       ADC_UNIT_1
 #define BAT_ADC_CHAN       ADC_CHANNEL_3        /* IO4 */
-#define BAT_ADC_ATTEN      ADC_ATTEN_DB_12      /* ~150..3100 mV input range */
-#define BAT_DIVIDER_NUM    3                    /* 200K + 100K -> /3 at the tap */
+#define BAT_ADC_ATTEN      ADC_ATTEN_DB_12      /* ~150..3100 mV */
+#define BAT_DIVIDER_NUM    3
 #define BAT_FILTER_DEPTH   8
 
-/* Charging detection. Trend is computed over the last
- * CHARGING_TREND_WINDOW_S seconds; >= +CHARGING_TREND_THRESHOLD_MV in
- * that window is "rising" (USB plugged in). The plateau check covers
- * the case where battery is already topped off and trend is flat. */
 #define CHARGING_PLATEAU_MV       4150
 #define CHARGING_TREND_WINDOW_S   3
-#define CHARGING_TREND_THRESHOLD  15            /* mV over the window */
+#define CHARGING_TREND_THRESHOLD  15            /* mV over window */
 
 static adc_oneshot_unit_handle_t s_adc_handle;
 static adc_cali_handle_t          s_cali_handle;
@@ -48,7 +44,6 @@ static int read_raw_mv(void)
     int adc_mv = 0;
     if(s_have_cali) {
         if(adc_cali_raw_to_voltage(s_cali_handle, raw, &adc_mv) != ESP_OK) {
-            /* Calibration miss -- fall through to linear estimate. */
             adc_mv = (raw * 3100) / 4095;
         }
     } else {
@@ -70,8 +65,7 @@ static void filter_push(int sample_mv)
 
 static void trend_tick(int sample_mv)
 {
-    /* Push one bucket per second; trend slot count = CHARGING_TREND_WINDOW_S+1
-     * so we have window-start and window-end samples. */
+    /* One bucket/sec. Slots = WINDOW_S+1 so we keep window-start and -end. */
     int64_t now_us = esp_timer_get_time();
     if(s_last_trend_us == 0 ||
        (now_us - s_last_trend_us) >= (int64_t)1000000) {
@@ -86,9 +80,7 @@ static void trend_tick(int sample_mv)
 static void bat_task(void *arg)
 {
     (void)arg;
-    /* Sample every 250 ms. With 8-deep filter that gives a 2-second
-     * smoothing constant, plenty fast for a status-bar glyph and slow
-     * enough to cancel transient TX-load brownouts on the rail. */
+    /* 250 ms x 8-deep = 2s smoothing constant -- cancels TX-load brownouts. */
     for(;;) {
         int mv = read_raw_mv();
         if(mv > 0) {
@@ -120,8 +112,7 @@ void hw_bat_init(void)
         return;
     }
 
-    /* Curve-fitting calibration is the preferred scheme on S3; fall
-     * back to the line-fitting path on chips where curve isn't fused. */
+    /* Curve-fitting is preferred on S3; line-fit fallback elsewhere. */
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
     const adc_cali_curve_fitting_config_t cali_cfg = {
         .unit_id  = BAT_ADC_UNIT,
@@ -147,10 +138,7 @@ int hw_bat_read_mv(void)
 
 int hw_bat_read_soc_pct(void)
 {
-    /* 1S LiPo discharge curve (typical, light load). Linear interpolation
-     * between knot voltages; saturates at the endpoints. The flat
-     * 3.7-3.8 V plateau is where most of the battery's energy lives, so
-     * a coarse table is fine -- a 50 mV miss is well under the noise. */
+    /* 1S LiPo discharge curve, light-load typical. Linear between knots. */
     static const struct { int mv; int pct; } curve[] = {
         { 4200, 100 },
         { 4100,  90 },
@@ -185,9 +173,8 @@ bool hw_bat_is_charging(void)
     if(s_last_mv >= CHARGING_PLATEAU_MV) return true;
     if(s_filter_count < BAT_FILTER_DEPTH) return false;
 
-    /* Trend window: oldest valid sample to newest. */
     int newest = s_trend_buf[0];
     int oldest = s_trend_buf[CHARGING_TREND_WINDOW_S];
-    if(oldest == 0) return false;        /* not yet populated */
+    if(oldest == 0) return false;
     return (newest - oldest) >= CHARGING_TREND_THRESHOLD;
 }

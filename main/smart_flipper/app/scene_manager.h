@@ -44,7 +44,7 @@ void     scene_manager_stop(SceneManager *sm);
 void     scene_manager_next_scene(SceneManager *sm, uint32_t scene_id);
 bool     scene_manager_previous_scene(SceneManager *sm);
 bool     scene_manager_handle_back_event(SceneManager *sm);
-bool     scene_manager_handle_custom_event(SceneManager *sm, uint32_t event);
+void     scene_manager_handle_custom_event(SceneManager *sm, uint32_t event);
 void     scene_manager_handle_tick_event(SceneManager *sm);
 bool     scene_manager_search_and_switch_to_previous_scene(SceneManager *sm, uint32_t scene_id);
 bool     scene_manager_search_and_switch_to_previous_scene_one_of(

@@ -21,16 +21,8 @@ typedef enum {
 } AppId;
 
 /*
- * Fully stack-based app lifecycle:
- *
- *   on_init()   – Called ONCE at boot. Create screen, allocate all view
- *                 modules, register observers. Everything persists in RAM.
- *   on_enter()  – Called each time the app becomes visible. Load screen,
- *                 start scene manager, start timers/hw. Lightweight – no alloc.
- *   on_leave()  – Called when navigating away. Stop timers/hw, reset scene
- *                 state. NO deletion – screen stays in RAM for instant re-entry.
- *   get_screen()         – Return the pre-created screen object.
- *   get_scene_manager()  – Return the scene manager (NULL for simple screens).
+ * Persistent-screen lifecycle: on_init allocates once at boot and screens
+ * stay resident for instant re-entry; on_enter/on_leave must not alloc/free.
  */
 typedef struct {
     AppId         id;
@@ -46,7 +38,7 @@ typedef struct {
 
 void                 app_manager_init(lv_obj_t *home_screen);
 void                 app_manager_register(const AppDescriptor *desc);
-void                 app_manager_init_apps(void);  /* call after all registrations */
+void                 app_manager_init_apps(void);
 void                 app_manager_launch(AppId id);
 void                 app_manager_exit_current(void);
 AppId                app_manager_get_current(void);

@@ -49,7 +49,6 @@ static void send_recent(const IrRecent *r, IrApp *app)
     hw_ir_send_raw(t, n, hz);
     hw_rgb_off();
     free(t);
-    /* No re-append; the recent is already at top of recents.txt. */
 }
 
 static void submenu_cb(void *context, uint32_t index)
@@ -102,8 +101,6 @@ void ir_scene_start_on_enter(void *ctx)
     char remote_names[1][IR_REMOTE_NAME_MAX];
     size_t remote_count = 0;
     ir_store_list_remotes(remote_names, 0, &remote_count);
-    /* When cap is 0 the helper just returns the count or 0; treat any
-     * non-zero value below as informational only. */
 
     view_submenu_reset(app->submenu);
     view_submenu_set_header(app->submenu, "IR Remote", COLOR_ORANGE);

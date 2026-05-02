@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "store_util.h"
 
 #define TAG "macro_store"
 
@@ -219,18 +220,23 @@ esp_err_t macro_save(const IrMacro *in)
 {
     if(!in || in->path[0] == '\0') return ESP_ERR_INVALID_ARG;
 
-    FILE *fp = fopen(in->path, "w");
+    FILE *fp = store_atomic_open(in->path);
     if(!fp) return ESP_FAIL;
 
-    fprintf(fp, "%s\n%s\n", IR_MACRO_FILETYPE, IR_MACRO_VERSION);
+    if(fprintf(fp, "%s\n%s\n", IR_MACRO_FILETYPE, IR_MACRO_VERSION) < 0) {
+        store_atomic_abort(fp, in->path);
+        return ESP_FAIL;
+    }
     for(size_t i = 0; i < in->step_count; i++) {
         const IrMacroStep *s = &in->steps[i];
         uint8_t rp = s->repeat ? s->repeat : 1;
-        fprintf(fp, "#\nremote: %s\nbutton: %s\ndelay_ms: %lu\nrepeat: %u\n",
-                s->remote, s->button, (unsigned long)s->delay_ms, rp);
+        if(fprintf(fp, "#\nremote: %s\nbutton: %s\ndelay_ms: %lu\nrepeat: %u\n",
+                   s->remote, s->button, (unsigned long)s->delay_ms, rp) < 0) {
+            store_atomic_abort(fp, in->path);
+            return ESP_FAIL;
+        }
     }
-    fclose(fp);
-    return ESP_OK;
+    return store_atomic_commit(fp, in->path);
 }
 
 esp_err_t macro_delete_file(const IrMacro *m)

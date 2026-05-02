@@ -1,5 +1,3 @@
-/* In-RAM stub for the SubGHz signal storage layer. */
-
 #include "signal_store.h"
 #include <string.h>
 #include <stdio.h>

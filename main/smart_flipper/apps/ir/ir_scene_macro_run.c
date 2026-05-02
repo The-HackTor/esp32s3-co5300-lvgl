@@ -220,8 +220,7 @@ void ir_scene_macro_run_on_enter(void *ctx)
 {
     IrApp *app = ctx;
 
-    /* Macros chain multiple TX bursts back-to-back. Light-sleep mid-
-     * run would silently drop the rest of the sequence. */
+    /* Light-sleep mid-run silently drops the rest of the sequence. */
     hw_sleep_inhibit(true);
 
     MacroRunner *r = calloc(1, sizeof(MacroRunner));

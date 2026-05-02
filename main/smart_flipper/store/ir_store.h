@@ -122,6 +122,7 @@ esp_err_t ir_history_append(const IrHistoryEntry *e);
 esp_err_t ir_history_read(IrHistoryEntry *out, size_t cap, size_t *out_count);
 esp_err_t ir_history_delete(size_t idx);
 esp_err_t ir_history_clear(void);
+esp_err_t ir_history_flush(void);
 
 esp_err_t ir_remote_init(IrRemote *r, const char *name);
 esp_err_t ir_remote_load(IrRemote *out, const char *path);

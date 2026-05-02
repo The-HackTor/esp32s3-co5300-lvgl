@@ -9,7 +9,8 @@ static void brand_tapped(void *ctx, uint32_t index)
     IrApp *app = ctx;
     if(index >= ac_brand_count) return;
     if(app->ac_brand != ac_brand_table[index]) {
-        app->ac_state.temp_c = 0;   /* Force ir_scene_ac to re-init defaults. */
+        /* Out-of-range temp signals ir_scene_ac to reload from NVS / defaults. */
+        app->ac_state.temp_c = 0;
         app->ac_brand = ac_brand_table[index];
     }
     scene_manager_set_scene_state(&app->scene_mgr, ir_SCENE_AcBrand, index);

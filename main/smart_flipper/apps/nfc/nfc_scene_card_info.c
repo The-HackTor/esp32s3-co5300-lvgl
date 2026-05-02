@@ -3,10 +3,6 @@
 #include "ui/styles.h"
 #include <stdio.h>
 
-/*
- * Card Info -- pure info display, no action buttons.
- * Save/Emulate are in the contextual ReadMenu or SavedMenu.
- */
 void nfc_scene_card_info_on_enter(void *ctx) {
     NfcApp *app = ctx;
     char buf[128];

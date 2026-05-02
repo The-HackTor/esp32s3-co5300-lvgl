@@ -22,14 +22,13 @@ typedef void (*hw_nfc_hardnested_cb_t)(bool success,
 
 void hw_nfc_init(bool nfc_available);
 
-/* Read: NFC thread fills caller-provided mfc_out OR mfu_out (never both).
- * cb runs in LVGL context; `type` tells you which buffer is valid. */
+/* Fills exactly one of mfc_out / mfu_out; cb runs in LVGL context, `type`
+ * picks the live buffer. */
 void hw_nfc_start_read(struct mfc_dump *mfc_out, struct mfu_dump *mfu_out,
                        hw_nfc_read_cb_t cb, void *ctx);
 void hw_nfc_cancel_read(void);
 
-/* Emulate directly from caller's dump. Caller must keep `src` alive
- * until hw_nfc_stop_emulate(). */
+/* `src` must outlive hw_nfc_stop_emulate(). */
 void hw_nfc_start_emulate(struct mfc_dump *src, hw_nfc_nonce_cb_t cb, void *ctx);
 void hw_nfc_start_emulate_mfu(struct mfu_dump *src);
 void hw_nfc_stop_emulate(void);

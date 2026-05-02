@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include "app/scene_manager.h"
 
-/* --- Generate scene enum --- */
 #define ADD_SCENE(prefix, name, id) prefix##_SCENE_##id,
 typedef enum {
 #include "nfc_scene_config.h"
@@ -14,7 +13,6 @@ typedef enum {
 
 #define NFC_SCENE_COUNT nfc_SCENE_COUNT
 
-/* --- Generate forward declarations --- */
 #define ADD_SCENE(prefix, name, id)                                        \
     void prefix##_scene_##name##_on_enter(void *ctx);                      \
     bool prefix##_scene_##name##_on_event(void *ctx, SceneEvent event);    \
@@ -22,7 +20,6 @@ typedef enum {
 #include "nfc_scene_config.h"
 #undef ADD_SCENE
 
-/* --- Custom events --- */
 enum {
     NFC_EVT_READ_DONE = 0x100,
     NFC_EVT_READ_FAIL,

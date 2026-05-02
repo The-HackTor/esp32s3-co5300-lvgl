@@ -1,4 +1,6 @@
 #include "scene_manager.h"
+#include <lvgl.h>
+#include <stdlib.h>
 #include <string.h>
 
 void scene_manager_init(SceneManager *sm, const SceneManagerHandlers *handlers, void *ctx)
@@ -18,30 +20,28 @@ void scene_manager_stop(SceneManager *sm)
 void scene_manager_next_scene(SceneManager *sm, uint32_t scene_id)
 {
     if(!sm->running) return;
+    if(scene_id >= sm->handlers->scene_num) return;
+    if(sm->stack_size >= SCENE_STACK_MAX) return;
+
     if(sm->stack_size > 0) {
         uint32_t cur = sm->stack[sm->stack_size - 1];
         sm->handlers->on_exit[cur](sm->context);
     }
-    if(sm->stack_size < SCENE_STACK_MAX) {
-        sm->stack[sm->stack_size++] = scene_id;
-    }
+    sm->stack[sm->stack_size++] = scene_id;
     sm->handlers->on_enter[scene_id](sm->context);
 }
 
 bool scene_manager_previous_scene(SceneManager *sm)
 {
     if(!sm->running) return false;
-    if(sm->stack_size <= 1) {
-        if(sm->stack_size == 1) {
-            uint32_t cur = sm->stack[0];
-            sm->handlers->on_exit[cur](sm->context);
-            sm->stack_size = 0;
-        }
-        return false;
-    }
+    if(sm->stack_size == 0) return false;
+
     uint32_t cur = sm->stack[sm->stack_size - 1];
     sm->handlers->on_exit[cur](sm->context);
     sm->stack_size--;
+
+    if(sm->stack_size == 0) return false;
+
     uint32_t prev = sm->stack[sm->stack_size - 1];
     sm->handlers->on_enter[prev](sm->context);
     return true;
@@ -53,6 +53,8 @@ bool scene_manager_handle_back_event(SceneManager *sm)
 
     SceneEvent ev = {.type = SceneEventTypeBack, .event = 0};
     uint32_t cur = sm->stack[sm->stack_size - 1];
+    if(cur >= sm->handlers->scene_num) return false;
+
     bool consumed = sm->handlers->on_event[cur](sm->context, ev);
     if(!consumed) {
         consumed = scene_manager_previous_scene(sm);
@@ -60,13 +62,36 @@ bool scene_manager_handle_back_event(SceneManager *sm)
     return consumed;
 }
 
-bool scene_manager_handle_custom_event(SceneManager *sm, uint32_t event)
+struct sm_async_event {
+    SceneManager *sm;
+    uint32_t      event;
+};
+
+static void sm_async_dispatch(void *arg)
 {
-    if(sm->stack_size == 0) return false;
+    struct sm_async_event *e = arg;
+    SceneManager *sm = e->sm;
+    uint32_t event = e->event;
+    free(e);
+
+    if(!sm || !sm->running) return;
+    if(sm->stack_size == 0) return;
+
+    uint32_t cur = sm->stack[sm->stack_size - 1];
+    if(cur >= sm->handlers->scene_num) return;
 
     SceneEvent ev = {.type = SceneEventTypeCustom, .event = event};
-    uint32_t cur = sm->stack[sm->stack_size - 1];
-    return sm->handlers->on_event[cur](sm->context, ev);
+    sm->handlers->on_event[cur](sm->context, ev);
+}
+
+void scene_manager_handle_custom_event(SceneManager *sm, uint32_t event)
+{
+    if(!sm) return;
+    struct sm_async_event *e = malloc(sizeof(*e));
+    if(!e) return;
+    e->sm    = sm;
+    e->event = event;
+    if(lv_async_call(sm_async_dispatch, e) != LV_RESULT_OK) free(e);
 }
 
 void scene_manager_handle_tick_event(SceneManager *sm)
@@ -75,38 +100,39 @@ void scene_manager_handle_tick_event(SceneManager *sm)
 
     SceneEvent ev = {.type = SceneEventTypeTick, .event = 0};
     uint32_t cur = sm->stack[sm->stack_size - 1];
+    if(cur >= sm->handlers->scene_num) return;
+
     sm->handlers->on_event[cur](sm->context, ev);
 }
 
 bool scene_manager_search_and_switch_to_previous_scene(SceneManager *sm, uint32_t scene_id)
 {
     if(!sm->running) return false;
-    uint32_t cur = sm->stack_size > 0 ? sm->stack[sm->stack_size - 1] : 0;
-    if(sm->stack_size > 0) {
-        sm->handlers->on_exit[cur](sm->context);
-    }
+    if(scene_id >= sm->handlers->scene_num) return false;
 
-    while(sm->stack_size > 0) {
-        if(sm->stack[sm->stack_size - 1] == scene_id) {
-            sm->handlers->on_enter[scene_id](sm->context);
-            return true;
+    uint32_t target_depth = sm->stack_size;
+    for(uint32_t i = sm->stack_size; i > 0; i--) {
+        if(sm->stack[i - 1] == scene_id) {
+            target_depth = i;
+            break;
         }
-        uint32_t top = sm->stack[sm->stack_size - 1];
-        sm->handlers->on_exit[top](sm->context);
-        sm->stack_size--;
     }
-    return false;
+    if(target_depth == sm->stack_size) return false;
+
+    uint32_t cur = sm->stack[sm->stack_size - 1];
+    sm->handlers->on_exit[cur](sm->context);
+
+    sm->stack_size = target_depth;
+    sm->handlers->on_enter[scene_id](sm->context);
+    return true;
 }
 
 bool scene_manager_search_and_switch_to_previous_scene_one_of(
     SceneManager *sm, const uint32_t *scene_ids, size_t count)
 {
     for(size_t i = 0; i < count; i++) {
-        /* Check if this scene_id is on the stack (non-destructive scan) */
-        for(uint32_t s = 0; s < sm->stack_size; s++) {
-            if(sm->stack[s] == scene_ids[i]) {
-                return scene_manager_search_and_switch_to_previous_scene(sm, scene_ids[i]);
-            }
+        if(scene_manager_search_and_switch_to_previous_scene(sm, scene_ids[i])) {
+            return true;
         }
     }
     return false;

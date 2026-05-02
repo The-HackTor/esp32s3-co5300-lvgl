@@ -20,7 +20,8 @@
 
 #define TAG "ir_univ_brute"
 
-#define BRUTE_TICK_MS         30   /* matches rx_drain pace; ~Flipper's 100ms total step time */
+/* 30ms matches rx_drain pace and lands close to Flipper's 100ms total step. */
+#define BRUTE_TICK_MS         30
 #define BRUTE_INTER_FRAME_MS  110
 #define BRUTE_CANCEL_WAIT_MS  300
 #define BRUTE_EVT_QUEUE_DEPTH 8
@@ -32,7 +33,8 @@ typedef struct {
 
 typedef struct {
     IrBruteContext  bc;
-    size_t          cur;          /* index of step currently in flight, or next to dispatch when idle */
+    /* in-flight step idx, or next-to-dispatch when idle */
+    size_t          cur;
     size_t          total;
     bool            paused;
     bool            finished;
@@ -81,9 +83,8 @@ static void brute_submit_next(IrApp *app)
         return;
     }
 
-    /* Match Flipper: each "send" fires MAX(protocol_min_repeat, user setting).
-     * NEC=1, Samsung=1, RC5/6=1; SIRC=3 (Sony); Pioneer=2. RAW + brand
-     * encoders use the user setting only (min_repeat = 1). */
+    /* Flipper parity: MAX(protocol_min_repeat, user setting). SIRC=3,
+     * Pioneer=2; everything else = 1 so user setting wins. */
     uint8_t user_reps = ir_settings()->brute_repeat;
     if(user_reps == 0) user_reps = 1;
     uint8_t reps = user_reps > mr ? user_reps : mr;
@@ -93,7 +94,7 @@ static void brute_submit_next(IrApp *app)
         .n_timings  = n,
         .carrier_hz = hz,
         .repeat     = reps,
-        .gap_ms     = sil_ms,                 /* per-protocol Flipper-native */
+        .gap_ms     = sil_ms,
         .on_done    = on_tx_done,
         .ctx        = app,
     };
@@ -129,12 +130,10 @@ static void brute_tick_cb(lv_timer_t *t)
         hw_rgb_off();
 
         if(e.result == HW_IR_TX_CANCELLED) {
-            /* Cancelled by pause / Worked!. Don't advance; the next dispatch
-             * will refire the same step on resume. */
+            /* Don't advance: resume refires the same step. */
             continue;
         }
-        /* Prev/Next manual fires happen while paused -- the user is
-         * scrubbing through signals, not advancing the brute cursor. */
+        /* Paused -> manual prev/next scrub; cur stays put. */
         if(s_st.paused) continue;
         s_st.cur += 1;
         if(s_st.cur >= s_st.total) s_st.finished = true;
@@ -225,7 +224,6 @@ static void on_stop_or_resume(void *ctx)
     }
     if(s_st.paused) {
         s_st.paused = false;
-        /* The next tick will dispatch the (un-incremented) cur step. */
     } else {
         s_st.paused = true;
         if(s_st.in_flight && s_st.last_tx_id) {
@@ -251,9 +249,8 @@ static void on_step(IrApp *app, int delta)
         if(s_st.cur + 1 >= s_st.total) return;
         s_st.cur++;
     }
-    /* Cancel any in-flight manual/burst before refiring. The previous id
-     * is no longer last_tx_id once submit_next runs, so its ack lands as
-     * a stale event and gets dropped by the queue handler. */
+    /* Cancel before refiring; the old id will drop as a stale ack once
+     * submit_next overwrites last_tx_id. */
     if(s_st.in_flight && s_st.last_tx_id) {
         hw_ir_tx_cancel(s_st.last_tx_id);
         s_st.in_flight = false;
@@ -270,9 +267,8 @@ static void on_worked(void *ctx)
 {
     IrApp *app = ctx;
 
-    /* Freeze the state machine and stop the in-flight burst before
-     * re-encoding, so the worker isn't writing to the buffer we're about
-     * to copy. Wait briefly for the cancel ack to land in our queue. */
+    /* Freeze + cancel before re-encoding so the worker isn't writing the
+     * buffer we copy. Bounded wait for the cancel ack. */
     s_st.paused = true;
     if(s_st.in_flight && s_st.last_tx_id) {
         hw_ir_tx_cancel(s_st.last_tx_id);
@@ -286,8 +282,7 @@ static void on_worked(void *ctx)
         app->univ_save_valid = false;
     }
 
-    /* `cur` is the step IN FLIGHT (next to be confirmed). When pause hit
-     * mid-burst, cur is the step the user just heard fire. */
+    /* `cur` is the in-flight step (the one the user just heard fire). */
     const size_t pick = (s_st.cur < s_st.total) ? s_st.cur :
                         (s_st.total ? s_st.total - 1 : 0);
     if(ir_brute_step_to_button(&s_st.bc, pick, &app->univ_save_button) != ESP_OK) {
@@ -363,12 +358,10 @@ void ir_scene_universal_brute_on_enter(void *ctx)
         return;
     }
 
-    /* No RX during brute: matches Flipper's per-scene worker lifecycle and
-     * eliminates self-echo decode pollution + heap churn from rx_drain. */
+    /* No RX during brute: kills self-echo decode and rx_drain heap churn. */
     ir_app_rx_pause();
 
-    /* Light-sleep would clock-gate RMT and silently halt the brute
-     * burst. Inhibit until on_exit. */
+    /* Light-sleep clock-gates RMT and silently halts the burst. */
     hw_sleep_inhibit(true);
 
     s_st.tick = lv_timer_create(brute_tick_cb, BRUTE_TICK_MS, app);
@@ -400,13 +393,11 @@ void ir_scene_universal_brute_on_exit(void *ctx)
 
     hw_sleep_inhibit(false);
 
-    /* Stop dispatching first so the tick callback can't submit anything new. */
+    /* Order: stop dispatch -> cancel TX -> drain queue. Reversed any way
+     * leaves the queue receiving callbacks against a freed handle. */
     if(s_st.tick) { lv_timer_delete(s_st.tick); s_st.tick = NULL; }
-
-    /* Cancel everything; bounded wait for the worker to drop its current burst. */
     hw_ir_tx_cancel_all(BRUTE_CANCEL_WAIT_MS);
 
-    /* Now nothing can post into our queue (worker is idle). Drop and free. */
     if(s_st.evt_queue) {
         BruteEvt drain;
         while(xQueueReceive(s_st.evt_queue, &drain, 0) == pdTRUE) {}
@@ -417,8 +408,6 @@ void ir_scene_universal_brute_on_exit(void *ctx)
     s_st.in_flight = false;
     s_st.last_tx_id = 0;
 
-    /* Restore the IR RX subsystem so subsequent scenes (Learn, History, etc.)
-     * resume capturing. Mirror Flipper's per-scene worker lifecycle. */
     ir_app_rx_resume();
 
     hw_rgb_off();

@@ -53,7 +53,6 @@ static void populate_list(void)
         const AppDescriptor *desc = app_manager_get_app_by_index(i);
         if(!desc) continue;
 
-        /* Separator line before each item (except the first) */
         if(i > 0) {
             lv_obj_t *line = lv_obj_create(list);
             lv_obj_set_size(line, lv_pct(70), 1);
@@ -63,7 +62,6 @@ static void populate_list(void)
             lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         }
 
-        /* Transparent row -- no card background */
         lv_obj_t *btn = lv_obj_create(list);
         lv_obj_set_size(btn, lv_pct(100), 72);
         lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
@@ -96,7 +94,6 @@ void arc_menu_show(void)
     visible = true;
 
     if(!overlay) {
-        /* First time: create persistent overlay */
         overlay = lv_obj_create(lv_layer_top());
         lv_obj_set_size(overlay, DISP_W, DISP_H);
         lv_obj_set_style_bg_color(overlay, COLOR_BG, 0);
@@ -113,7 +110,6 @@ void arc_menu_show(void)
         lv_obj_add_event_cb(list, list_scroll_cb, LV_EVENT_SCROLL, NULL);
     }
 
-    /* Rebuild item list (apps may have changed) */
     lv_obj_clean(list);
     populate_list();
     barrel_list_refresh(list);

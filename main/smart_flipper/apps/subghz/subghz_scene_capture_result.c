@@ -2,13 +2,6 @@
 #include "subghz_scenes.h"
 #include "ui/styles.h"
 
-/*
- * Capture Result -- shown after successful RAW capture.
- * Displays signal summary with two options:
- *   Retry → go back to Capture config
- *   More  → go to contextual Decoded menu (Save/Replay/Waveform)
- */
-
 enum { SUBGHZ_EVT_RETRY = 0x400, SUBGHZ_EVT_MORE };
 
 static void retry_cb(void *ctx)
@@ -30,7 +23,6 @@ void subghz_scene_capture_result_on_enter(void *ctx)
     view_info_reset(app->info);
     view_info_set_header(app->info, "Signal Captured", COLOR_CYAN);
 
-    /* Frequency */
     char freq_buf[32];
     uint32_t mhz = app->frequency / 1000;
     uint32_t khz = app->frequency % 1000;
@@ -39,14 +31,12 @@ void subghz_scene_capture_result_on_enter(void *ctx)
     view_info_add_field(app->info, "Frequency", freq_buf, COLOR_YELLOW);
     view_info_add_separator(app->info);
 
-    /* Sample count */
     char samples_buf[32];
     lv_snprintf(samples_buf, sizeof(samples_buf), "%u",
                 (unsigned)app->raw.count);
     view_info_add_field(app->info, "Samples", samples_buf, COLOR_PRIMARY);
     view_info_add_separator(app->info);
 
-    /* Decoded protocol if available */
     if(app->decoded_valid) {
         view_info_add_field(app->info, "Protocol",
                             app->last_decoded.protocol, COLOR_GREEN);

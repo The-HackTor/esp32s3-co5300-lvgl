@@ -1,5 +1,4 @@
-/* Stub bridge layer for the ESP-IDF port. The real bridge talks UART-DMA to an
- * ESP32-C5 companion; on standalone S3, every send is logged and dropped. */
+/* Stub: real bridge UART-DMAs to an ESP32-C5 companion. Standalone S3 logs and drops. */
 
 #include "bridge.h"
 #include "esp_log.h"

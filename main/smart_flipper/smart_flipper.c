@@ -1,6 +1,3 @@
-/* Smart Flipper UI entry — replaces the Zephyr main.c handoff.
- * Caller must already have lv_init() done and hold the LVGL mutex. */
-
 #include "smart_flipper.h"
 #include "esp_log.h"
 #include "lvgl.h"
@@ -57,7 +54,6 @@ void smart_flipper_start(void)
     styles_init();
     ui_subjects_init();
 
-    /* Stubs: no real NFC or SubGHz radio on this hardware */
     hw_nfc_init(false);
     hw_subghz_init(NULL, false);
 

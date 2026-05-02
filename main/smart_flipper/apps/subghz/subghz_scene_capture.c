@@ -20,7 +20,7 @@ static const char *mod_labels[] = {"AM270", "AM650", "FM2.38", "FM47.6"};
 static uint8_t rssi_history[RSSI_HISTORY_SIZE];
 static uint8_t rssi_idx;
 static bool rssi_wrapped;
-static uint16_t last_sample_count;
+static uint32_t last_sample_count;
 
 static lv_obj_t *freq_lbl;
 static lv_obj_t *rssi_value_lbl;
@@ -130,8 +130,10 @@ static void rssi_timer_cb(lv_timer_t *t)
     if(!app) return;
 
     if(recording) {
-        uint16_t count = hw_subghz_capture_sample_count();
-        uint16_t delta = count - last_sample_count;
+        uint32_t count = hw_subghz_capture_sample_count();
+        uint32_t delta = count >= last_sample_count
+                       ? count - last_sample_count
+                       : 0;
         last_sample_count = count;
 
         uint8_t h;
