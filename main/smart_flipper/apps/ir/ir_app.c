@@ -97,6 +97,38 @@ static void worker_signal_cb(void *ctx, InfraredWorkerSignal *signal)
     }
 }
 
+static void hw_rx_frame_cb(const uint16_t *timings, size_t n_timings, void *ctx)
+{
+    (void)ctx;
+    if(!app.rx_queue || n_timings == 0) return;
+
+    IrRxFrame *frame = malloc(sizeof(IrRxFrame));
+    if(!frame) return;
+    memset(frame, 0, sizeof(*frame));
+
+    size_t n_copy = n_timings < IR_RX_TIMINGS_MAX ? n_timings : IR_RX_TIMINGS_MAX;
+    memcpy(frame->timings, timings, n_copy * sizeof(uint16_t));
+    frame->n_timings = n_copy;
+    frame->frequency = 38000;
+
+    IrDecoded dec = {0};
+    if(ir_codecs_decode(timings, n_timings, &dec) && dec.source == IR_DECODED_FLIPPER) {
+        InfraredProtocol proto = infrared_get_protocol_by_name(dec.protocol);
+        if(infrared_is_protocol_valid(proto)) {
+            frame->decoded = true;
+            frame->message.protocol = proto;
+            frame->message.address  = dec.address;
+            frame->message.command  = dec.command;
+            frame->message.repeat   = dec.repeat;
+            frame->frequency = infrared_get_protocol_frequency(proto);
+        }
+    }
+
+    if(xQueueSend(app.rx_queue, &frame, 0) != pdTRUE) {
+        free(frame);
+    }
+}
+
 static void rx_drain_timer_cb(lv_timer_t *t)
 {
     (void)t;
@@ -315,7 +347,7 @@ void ir_app_rx_pause_seed_initial(void)
 void ir_app_rx_pause(void)
 {
     if(s_rx_pause_depth++ > 0) return;
-    if(app.worker) infrared_worker_rx_stop(app.worker);
+    hw_ir_rx_stop();
     if(app.rx_drain_timer) lv_timer_pause(app.rx_drain_timer);
     if(app.rx_queue) {
         IrRxFrame *frame = NULL;
@@ -330,7 +362,7 @@ void ir_app_rx_resume(void)
     if(s_rx_pause_depth == 0) return;
     if(--s_rx_pause_depth > 0) return;
     if(app.rx_queue) xQueueReset(app.rx_queue);
-    if(app.worker) infrared_worker_rx_start(app.worker);
+    hw_ir_rx_start(hw_rx_frame_cb, NULL);
     if(app.rx_drain_timer) lv_timer_resume(app.rx_drain_timer);
 }
 
