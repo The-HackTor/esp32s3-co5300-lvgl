@@ -181,9 +181,9 @@ esp_err_t hw_imu_arm_motion_wake(void)
     esp_err_t err = reg_write(REG_CTRL7, 0x00);
     if(err != ESP_OK) return err;
 
-    reg_write(REG_CAL1_L, 0x03);
-    reg_write(REG_CAL1_H, 0x03);
-    reg_write(REG_CAL2_L, 0x03);
+    reg_write(REG_CAL1_L, 0x01);
+    reg_write(REG_CAL1_H, 0x01);
+    reg_write(REG_CAL2_L, 0x01);
     reg_write(REG_CAL2_H, 0x02);
     reg_write(REG_CAL3_L, 0x02);
     reg_write(REG_CAL3_H, 0x02);
@@ -202,7 +202,7 @@ esp_err_t hw_imu_arm_motion_wake(void)
     err = ctrl9_cmd(CTRL9_MOTION);
     if(err != ESP_OK) return err;
 
-    err = reg_write(REG_CTRL8, 0xC2);
+    err = reg_write(REG_CTRL8, 0x82);
     if(err != ESP_OK) return err;
     err = reg_write(REG_CTRL7, CTRL7_ACCGYR_EN);
     if(err != ESP_OK) return err;

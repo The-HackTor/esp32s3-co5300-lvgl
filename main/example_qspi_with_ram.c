@@ -480,9 +480,12 @@ void app_main(void)
     };
     esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, lvgl_disp);
 
+    /* skip_unhandled_events: drop the missed-period backlog after light sleep
+     * so lv_tick doesn't fast-forward past trigger_activity on wake. */
     const esp_timer_create_args_t lvgl_tick_timer_args = {
         .callback = &example_increase_lvgl_tick,
-        .name = "lvgl_tick"
+        .name = "lvgl_tick",
+        .skip_unhandled_events = true,
     };
     esp_timer_handle_t lvgl_tick_timer = NULL;
     ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
