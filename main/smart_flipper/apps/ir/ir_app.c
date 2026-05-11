@@ -289,7 +289,7 @@ static void on_enter(void)
     ir_app_rx_pause_seed_initial();
 
     scene_manager_init(&app.scene_mgr, &ir_scene_handlers, &app);
-    scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Start);
+    scene_manager_next_scene(&app.scene_mgr, ir_SCENE_Universal);
 
     lv_screen_load(app.screen);
 }

@@ -8,6 +8,7 @@
 #include "ui/ui_subjects.h"
 #include "ui/arc_menu.h"
 #include "ui/screens/scr_watchface.h"
+#include "ui/screens/scr_face.h"
 #include "ui/screens/scr_weather.h"
 #include "ui/screens/scr_music.h"
 #include "ui/screens/scr_notifications.h"
@@ -57,10 +58,10 @@ void smart_flipper_start(void)
     hw_nfc_init(false);
     hw_subghz_init(NULL, false);
 
-    lv_obj_t *watchface = scr_watchface_create();
-    lv_screen_load(watchface);
+    lv_obj_t *face = scr_face_create();
+    lv_screen_load(face);
 
-    app_manager_init(watchface);
+    app_manager_init(face);
     arc_menu_init();
 
     scr_weather_register();
@@ -76,5 +77,5 @@ void smart_flipper_start(void)
 
     lv_timer_create(clock_tick_cb, 1000, NULL);
 
-    ESP_LOGI(TAG, "smart_flipper_start: done, watchface loaded");
+    ESP_LOGI(TAG, "smart_flipper_start: done, face loaded");
 }
