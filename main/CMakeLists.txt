@@ -40,6 +40,7 @@ idf_component_register(
         "smart_flipper/lib/infrared/codec_db"
         "smart_flipper/lib/infrared/universal_db"
         "smart_flipper/lib/infrared/worker"
+        "smart_flipper/lib/nfc"
 )
 
 set_source_files_properties(

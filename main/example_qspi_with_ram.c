@@ -29,12 +29,10 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "driver/sdspi_host.h"
+#include "smart_flipper/hw/hw_spi3.h"
 
 #define SD_PIN_CS    GPIO_NUM_38
-#define SD_PIN_MOSI  GPIO_NUM_39
-#define SD_PIN_MISO  GPIO_NUM_40
-#define SD_PIN_SCLK  GPIO_NUM_41
-#define SD_HOST      SPI3_HOST
+#define SD_HOST      HW_SPI3_HOST
 #define SD_MOUNT     "/sdcard"
 
 static const char *TAG = "example";
@@ -42,8 +40,6 @@ static SemaphoreHandle_t lvgl_mux = NULL;
 static lv_display_t *lvgl_disp = NULL;
 static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 
-/* SH8601 0x51 = write_display_brightness. BLANK is brightness=0 only;
- * SLPIN (0x10) deadlocked LVGL when it landed mid-QSPI-flush. */
 #define IDLE_DIM_LEVEL           0x1A
 #define IDLE_FULL_LEVEL          0xFF
 #define IDLE_RAMP_STEP           8
@@ -224,7 +220,7 @@ static bool example_notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
 
 static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    /* Never gate on panel state: SLPIN mid-DMA deadlocks LVGL. */
+
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
     const int offsetx1 = (READ_LCD_ID == SH8601_ID) ? area->x1 : area->x1 + 0x06;
     const int offsetx2 = (READ_LCD_ID == SH8601_ID) ? area->x2 : area->x2 + 0x06;
@@ -233,8 +229,6 @@ static void example_lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uin
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
 }
 
-/* SH8601/CO5300 require even CASET/PASET windows for 16bpp; odd-aligned
- * invalidations distort glyph rows. v9 LV_EVENT_INVALIDATE_AREA rounder. */
 static void example_lvgl_invalidate_area_cb(lv_event_t *e)
 {
     lv_area_t *area = lv_event_get_invalidated_area(e);
@@ -282,26 +276,17 @@ static void example_lvgl_unlock(void)
     xSemaphoreGive(lvgl_mux);
 }
 
-/* SDSPI on SPI3 (SPI2 reserved for 40 MHz QSPI AMOLED). Failure non-fatal. */
 static void example_mount_sdcard(void)
 {
-    const spi_bus_config_t bus = {
-        .mosi_io_num     = SD_PIN_MOSI,
-        .miso_io_num     = SD_PIN_MISO,
-        .sclk_io_num     = SD_PIN_SCLK,
-        .quadwp_io_num   = -1,
-        .quadhd_io_num   = -1,
-        .max_transfer_sz = 4096,
-    };
-    esp_err_t err = spi_bus_initialize(SD_HOST, &bus, SDSPI_DEFAULT_DMA);
+    esp_err_t err = hw_spi3_init();
     if(err != ESP_OK) {
-        ESP_LOGE(TAG, "SD: spi_bus_initialize failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "SD: hw_spi3_init failed: %s", esp_err_to_name(err));
         return;
     }
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot          = SD_HOST;
-    /* 20 MHz: HS-mode negotiation failed at the 40 MHz IDF ceiling on this board. */
+
     host.max_freq_khz  = 20000;
 
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
@@ -319,7 +304,7 @@ static void example_mount_sdcard(void)
     if(err != ESP_OK) {
         ESP_LOGW(TAG, "SD: mount %s failed: %s (continuing without SD)",
                  SD_MOUNT, esp_err_to_name(err));
-        spi_bus_free(SD_HOST);
+
         return;
     }
     ESP_LOGI(TAG, "SD: mounted at %s", SD_MOUNT);
@@ -344,10 +329,6 @@ static void example_lvgl_port_task(void *arg)
     }
 }
 
-/* Runs from the C-runtime constructor table BEFORE app_main, the earliest
- * user code can land. ROM bootloader and 2nd-stage bootloader leave GPIO16
- * floating; with no external pull-down on the NMOS gate the LED partially
- * lights from leakage. Anchor LOW the instant we get control. */
 static void __attribute__((constructor)) early_ir_tx_anchor(void)
 {
     gpio_hold_dis(GPIO_NUM_16);
@@ -431,7 +412,6 @@ void app_main(void)
 
     Touch_Init();
 
-    /* PCF85063 RTC + QMI8658 IMU share I2C0 with touch; init after Touch_Init. */
     hw_rtc_init();
     hw_imu_init();
 
@@ -454,7 +434,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Initialize LVGL library");
     lv_init();
 
-    /* lv_mem_add_pool returns NULL if pool > LV_MEM_POOL_EXPAND_SIZE_KILOBYTES (sdkconfig=4096). */
     void *psram_pool = heap_caps_malloc(EXAMPLE_LVGL_PSRAM_POOL_BYTES, MALLOC_CAP_SPIRAM);
     assert(psram_pool);
     if (lv_mem_add_pool(psram_pool, EXAMPLE_LVGL_PSRAM_POOL_BYTES) == NULL) {
@@ -462,7 +441,6 @@ void app_main(void)
         abort();
     }
 
-    /* DMA-capable SRAM only: PSRAM-sourced QSPI DMA underflows at 40 MHz. */
     void *buf1 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
     assert(buf1);
     void *buf2 = heap_caps_malloc(EXAMPLE_LVGL_BUF_BYTES, MALLOC_CAP_DMA);
@@ -480,8 +458,6 @@ void app_main(void)
     };
     esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, lvgl_disp);
 
-    /* skip_unhandled_events: drop the missed-period backlog after light sleep
-     * so lv_tick doesn't fast-forward past trigger_activity on wake. */
     const esp_timer_create_args_t lvgl_tick_timer_args = {
         .callback = &example_increase_lvgl_tick,
         .name = "lvgl_tick",
