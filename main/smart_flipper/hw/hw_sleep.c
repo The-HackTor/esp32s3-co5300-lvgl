@@ -34,16 +34,14 @@ static void enter_light_sleep(void)
 
     esp_light_sleep_start();
 
-    /* Button is still held LOW on wake; mark it held and clear any
-     * pending press so the post-wake release doesn't re-enter sleep. */
     s_btn_prev_low      = true;
     s_btn_press_pending = false;
 
     app_panel_restore_full();
     if(s_disp) lv_display_trigger_activity(s_disp);
 
-    ESP_LOGI(TAG, "light-sleep wake (cause=0x%lx)",
-             (unsigned long)esp_sleep_get_wakeup_causes());
+    ESP_LOGI(TAG, "light-sleep wake (cause=%d)",
+             (int)esp_sleep_get_wakeup_cause());
 }
 
 static void idle_tick(lv_timer_t *t)
@@ -62,8 +60,6 @@ static void btn_tick(lv_timer_t *t)
     bool was_low = s_btn_prev_low;
     s_btn_prev_low = now_low;
 
-    /* Falling edge: arm. Sleep only on release so the held-LOW button
-     * doesn't immediately re-trigger the wake source after sleep entry. */
     if(now_low && !was_low) {
         s_btn_press_pending = true;
         return;
