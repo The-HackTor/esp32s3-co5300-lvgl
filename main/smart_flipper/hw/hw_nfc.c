@@ -76,7 +76,7 @@ static void listener_nonce_cb(const struct mfkey_nonce *nonce, void *unused)
     if(lv_async_call(deliver_nonce_cb, pl) != LV_RESULT_OK) free(pl);
 }
 
-#define NFC_SPI_CS_GPIO    GPIO_NUM_42
+#define NFC_SPI_CS_GPIO    GPIO_NUM_46
 #define NFC_IRQ_GPIO       GPIO_NUM_18
 
 #define NFC_SPI_CLOCK_HZ   1000000

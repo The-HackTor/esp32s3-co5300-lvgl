@@ -26,6 +26,9 @@ static bool          s_btn_press_pending;
 
 static void enter_light_sleep(void)
 {
+    ESP_LOGW(TAG, "light-sleep entry disabled (bring-up)");
+    return;
+
     ESP_LOGI(TAG, "light-sleep entry");
 
     app_panel_blank();

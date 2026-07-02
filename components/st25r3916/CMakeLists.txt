@@ -14,7 +14,10 @@ idf_component_register(
         "st25r3916"
         "st25r_common"
     REQUIRES
-        driver
+        esp_driver_spi
+        esp_driver_gpio
         esp_timer
         log
 )
+
+target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-error=type-limits)
